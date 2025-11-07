@@ -3,7 +3,7 @@ import { signOut } from "firebase/auth";
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { auth } from "./lib/firebase";
 import { useAuthRole } from "./hooks/useAuth.js";
-import Navbar from "./components/Navbar.jsx";
+import Navbar from "./components/NavBar.jsx";
 import LoginModal from "./components/LoginModal.jsx";
 import SalesPage from "./pages/SalesPage.jsx";
 import KnocksPage from "./pages/KnocksPage.jsx";
