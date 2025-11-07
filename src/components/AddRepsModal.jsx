@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { addDoc, collection } from "firebase/firestore";
+import { addDoc, collection, getDocs, setDoc, doc } from "firebase/firestore";
+import { ensureWeek } from "../lib/weeks.js";
+import { futureWeekISOs } from "../utils/weeks.js";
 import { db } from "../lib/firebase";
 
 /**

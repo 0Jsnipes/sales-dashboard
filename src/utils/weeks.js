@@ -23,3 +23,12 @@ export function prevWeekISO(weekISO) {
   const d = parseWeekISO(weekISO) ?? startOfWeek();
   return toISO(addDays(d, -7));
 }
+export function futureWeekISOs(startISO, count = 12) {
+  // returns [nextWeek, next+1, ...] count items
+  const out = [];
+  let d = parseWeekISO(startISO) ?? startOfWeek();
+  for (let i = 1; i <= count; i++) {
+    out.push(toISO(addDays(d, i * 7)));
+  }
+  return out;
+}
