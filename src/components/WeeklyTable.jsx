@@ -190,9 +190,24 @@ export default function WeeklyTable({
       <tr>
         <th className="min-w-[180px]">Agent</th>
         <th className="min-w-[120px]">Sales ID</th>
-        {DAYS.map((d) => (
-          <th key={d} className={`text-center ${!isAdmin ? "px-5" : ""}`}>{d}</th>
+
+        {DAYS.map((d, i) => (
+          <th key={d} className={`text-center ${!isAdmin ? "px-5" : ""}`}>
+            <div className="flex flex-col items-center leading-tight">
+              <span className="font-medium">{d}</span>
+              <span className="text-xs text-slate-500">
+                {
+                  new Date(
+                    new Date(weekISO).getFullYear(),
+                    new Date(weekISO).getMonth(),
+                    new Date(weekISO).getDate() + i
+                  ).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+                }
+              </span>
+            </div>
+          </th>
         ))}
+
         <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>TOTAL</th>
         <th className={`min-w-[100px] text-center ${!isAdmin ? "px-5" : ""}`}>GOAL</th>
         <th className="min-w-[160px]">Progress</th>
@@ -201,98 +216,100 @@ export default function WeeklyTable({
       </tr>
     </thead>
 
-           <tbody className="
-      [&>tr:nth-child(odd)]:bg-white
-      [&>tr:nth-child(even)]:bg-slate-50
-      [&>tr>td]:border-b [&>tr>td]:border-slate-200
-    ">
-            {rows.map((r) => {
-              const arr = r[metricKey] || Array(7).fill(0);
-              const total = arr.reduce((a, b) => a + clampNum(b), 0);
-              const goal = clampNum(r[goalKey]);
-              const pct = goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : 0;
+    <tbody
+      className="
+        [&>tr:nth-child(odd)]:bg-white
+        [&>tr:nth-child(even)]:bg-slate-50
+        [&>tr>td]:border-b [&>tr>td]:border-slate-200
+      "
+    >
+      {rows.map((r) => {
+        const arr = r[metricKey] || Array(7).fill(0);
+        const total = arr.reduce((a, b) => a + clampNum(b), 0);
+        const goal = clampNum(r[goalKey]);
+        const pct = goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : 0;
 
-              return (
-                <tr key={`${r.id}-${r.name}`}>
-                  <td className="font-medium">{r.name}</td>
+        return (
+          <tr key={`${r.id}-${r.name}`}>
+            <td className="font-medium">{r.name}</td>
 
-                  <td>
-                    {isAdmin ? (
-                      <input
-                        type="text"
-                        defaultValue={r.salesId || ""}
-                        className="input input-bordered input-xs w-28"
-                        data-type="salesId"
-                        data-rep={r.id}
-                        onBlur={(e) => saveSalesId(r, e.target.value)}
-                        onKeyDown={handleKeyNav}
-                      />
-                    ) : (
-                      <span>{r.salesId ?? "—"}</span>
-                    )}
-                  </td>
+            <td>
+              {isAdmin ? (
+                <input
+                  type="text"
+                  defaultValue={r.salesId || ""}
+                  className="input input-bordered input-xs w-28"
+                  data-type="salesId"
+                  data-rep={r.id}
+                  onBlur={(e) => saveSalesId(r, e.target.value)}
+                  onKeyDown={handleKeyNav}
+                />
+              ) : (
+                <span>{r.salesId ?? "—"}</span>
+              )}
+            </td>
 
-                {/* Mon..Sun */}
-{DAYS.map((d, i) => (
-  <td key={d} className={`text-center ${!isAdmin ? "px-5" : ""}`}>
-    {isAdmin ? (
-      <input
-        type="number"
-        min="0"
-        defaultValue={arr[i] ?? ""}             // shows 0; blank only if undefined/null
-        className="input input-bordered input-xs w-16 text-center"
-        data-type="day"
-        data-rep={r.id}
-        data-day={i}
-        onBlur={(e) => saveCell(r, i, e.target.value)}
-        onKeyDown={handleKeyNav}
-      />
-    ) : (
-      <span>{arr[i] ?? ""}</span>
-    )}
-  </td>
-))}
+            {DAYS.map((d, i) => (
+              <td key={d} className={`text-center ${!isAdmin ? "px-5" : ""}`}>
+                {isAdmin ? (
+                  <input
+                    type="number"
+                    min="0"
+                    defaultValue={arr[i] ?? ""}
+                    className="input input-bordered input-xs w-16 text-center"
+                    data-type="day"
+                    data-rep={r.id}
+                    data-day={i}
+                    onBlur={(e) => saveCell(r, i, e.target.value)}
+                    onKeyDown={handleKeyNav}
+                  />
+                ) : (
+                  <span>{arr[i] ?? ""}</span>
+                )}
+              </td>
+            ))}
 
-<td className={`text-center font-semibold ${!isAdmin ? "px-5" : ""}`}>
-  {total}
-</td>
+            <td className={`text-center font-semibold ${!isAdmin ? "px-5" : ""}`}>
+              {total}
+            </td>
 
-<td className={`text-center ${!isAdmin ? "px-5" : ""}`}>
-  {isAdmin ? (
-    <input
-      type="number"
-      min="0"
-      defaultValue={goal ?? ""}                 // shows 0; blank only if undefined/null
-      className="input input-bordered input-xs w-20 text-center"
-      data-type="goal"
-      data-rep={r.id}
-      onBlur={(e) => saveGoal(r, e.target.value)}
-      onKeyDown={handleKeyNav}
-    />
-  ) : (
-    <span>{goal === 0 ? 0 : goal || ""}</span>
-  )}
-</td>
+            <td className={`text-center ${!isAdmin ? "px-5" : ""}`}>
+              {isAdmin ? (
+                <input
+                  type="number"
+                  min="0"
+                  defaultValue={goal ?? ""}
+                  className="input input-bordered input-xs w-20 text-center"
+                  data-type="goal"
+                  data-rep={r.id}
+                  onBlur={(e) => saveGoal(r, e.target.value)}
+                  onKeyDown={handleKeyNav}
+                />
+              ) : (
+                <span>{goal === 0 ? 0 : goal || ""}</span>
+              )}
+            </td>
 
+            <td>
+              <div className="flex items-center gap-2">
+                <progress className="progress progress-secondary w-28" value={pct} max="100" />
+                <span className="text-xs opacity-70 w-10">{pct}%</span>
+              </div>
+            </td>
 
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <progress className="progress progress-secondary w-28" value={pct} max="100" />
-                      <span className="text-xs opacity-70 w-10">{pct}%</span>
-                    </div>
-                  </td>
+            <td>{r.team || ""}</td>
 
-                  <td>{r.team || ""}</td>
-
-                  {isAdmin && (
-                    <td className="text-right">
-                      <button className="btn btn-ghost btn-xs" onClick={() => removeRep(r.id)}>Delete</button>
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
+            {isAdmin && (
+              <td className="text-right">
+                <button className="btn btn-ghost btn-xs" onClick={() => removeRep(r.id)}>
+                  Delete
+                </button>
+              </td>
+            )}
+          </tr>
+        );
+      })}
+    </tbody>
 
   <tfoot className="bg-slate-100/90 [&>tr>th]:border-t [&>tr>th]:border-slate-200">
       <tr>
