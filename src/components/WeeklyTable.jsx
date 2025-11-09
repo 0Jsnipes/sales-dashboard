@@ -1,12 +1,24 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import {
-  deleteDoc, doc, onSnapshot, collection, setDoc, getDocs
+  deleteDoc,
+  doc,
+  onSnapshot,
+  collection,
+  setDoc,
+  getDocs,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { DAYS, prevWeekISO } from "../utils/weeks.js";
 import AddRepsModal from "./AddRepsModal";
 
-const clampNum = (v) => (Number.isFinite(+v) && +v >= 0 ? Math.floor(+v) : 0);
+// Parse "YYYY-MM-DD" as LOCAL date to avoid UTC shift
+function parseLocalISO(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+const clampNum = (v) =>
+  Number.isFinite(+v) && +v >= 0 ? Math.floor(+v) : 0;
 
 export default function WeeklyTable({
   base = "weeks",
@@ -20,42 +32,70 @@ export default function WeeklyTable({
   const [rows, setRows] = useState([]);
   const [openAdd, setOpenAdd] = useState(false);
 
+  // Header dates for Mon..Sun
+  const headerDates = useMemo(() => {
+    const start = parseLocalISO(weekISO);
+    return Array.from({ length: 7 }, (_, i) => {
+      const dt = new Date(start);
+      dt.setDate(start.getDate() + i);
+      return dt;
+    });
+  }, [weekISO]);
+
+  const fmtHeaderDate = (dt) =>
+    dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
   // Load rows (alphabetical) with previous-week fallback (zeroed)
   useEffect(() => {
     let cancelled = false;
 
-    const unsub = onSnapshot(collection(db, base, weekISO, "reps"), async (s) => {
-      if (cancelled) return;
+    const unsub = onSnapshot(
+      collection(db, base, weekISO, "reps"),
+      async (s) => {
+        if (cancelled) return;
 
-      const all = s.docs.map((d) => ({ id: d.id, ...d.data() }));
-      let filtered = teamFilter === "All" ? all : all.filter((r) => (r.team || "") === teamFilter);
+        const all = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+        let filtered =
+          teamFilter === "All"
+            ? all
+            : all.filter((r) => (r.team || "") === teamFilter);
 
-      filtered = filtered.sort((a, b) =>
-        (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })
-      );
+        filtered = filtered.sort((a, b) =>
+          (a.name || "").localeCompare(b.name || "", undefined, {
+            sensitivity: "base",
+          })
+        );
 
-      if (filtered.length > 0) {
-        setRows(filtered);
-        return;
+        if (filtered.length > 0) {
+          setRows(filtered);
+          return;
+        }
+
+        // Fallback to prior week roster (zeroed)
+        const prevISO = prevWeekISO(weekISO);
+        const prevSnap = await getDocs(
+          collection(db, base, prevISO, "reps")
+        );
+        let prevFiltered = prevSnap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        }));
+        prevFiltered =
+          teamFilter === "All"
+            ? prevFiltered
+            : prevFiltered.filter((r) => (r.team || "") === teamFilter);
+
+        prevFiltered = prevFiltered
+          .sort((a, b) =>
+            (a.name || "").localeCompare(b.name || "", undefined, {
+              sensitivity: "base",
+            })
+          )
+          .map((r) => ({ ...r, [metricKey]: [0, 0, 0, 0, 0, 0, 0] }));
+
+        if (!cancelled) setRows(prevFiltered);
       }
-
-      // Fallback to prior week roster (zeroed)
-      const prevISO = prevWeekISO(weekISO);
-      const prevSnap = await getDocs(collection(db, base, prevISO, "reps"));
-      let prevFiltered = prevSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      prevFiltered =
-        teamFilter === "All"
-          ? prevFiltered
-          : prevFiltered.filter((r) => (r.team || "") === teamFilter);
-
-      prevFiltered = prevFiltered
-        .sort((a, b) =>
-          (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })
-        )
-        .map((r) => ({ ...r, [metricKey]: [0, 0, 0, 0, 0, 0, 0] }));
-
-      if (!cancelled) setRows(prevFiltered);
-    });
+    );
 
     return () => {
       cancelled = true;
@@ -80,13 +120,29 @@ export default function WeeklyTable({
     const n = value === "" ? 0 : clampNum(value);
     const arr = [...(rep[metricKey] || Array(7).fill(0))];
     arr[dayIdx] = n;
-    await setDoc(doc(db, base, weekISO, "reps", rep.id), { [metricKey]: arr }, { merge: true });
+    await setDoc(
+      doc(db, base, weekISO, "reps", rep.id),
+      { [metricKey]: arr },
+      { merge: true }
+    );
   };
+
   const saveGoal = async (rep, value) =>
-    setDoc(doc(db, base, weekISO, "reps", rep.id), { [goalKey]: value === "" ? 0 : clampNum(value) }, { merge: true });
+    setDoc(
+      doc(db, base, weekISO, "reps", rep.id),
+      { [goalKey]: value === "" ? 0 : clampNum(value) },
+      { merge: true }
+    );
+
   const saveSalesId = async (rep, value) =>
-    setDoc(doc(db, base, weekISO, "reps", rep.id), { salesId: value.trim() }, { merge: true });
-  const removeRep = async (id) => deleteDoc(doc(db, base, weekISO, "reps", id));
+    setDoc(
+      doc(db, base, weekISO, "reps", rep.id),
+      { salesId: value.trim() },
+      { merge: true }
+    );
+
+  const removeRep = async (id) =>
+    deleteDoc(doc(db, base, weekISO, "reps", id));
 
   // Excel-like navigation (save THEN move)
   const moveFocus = useCallback((td, rowDelta, colDelta) => {
@@ -97,8 +153,11 @@ export default function WeeklyTable({
 
     const colIndex = [...row.children].indexOf(td);
     const nextRow =
-      rowDelta < 0 ? row.previousElementSibling :
-      rowDelta > 0 ? row.nextElementSibling : row;
+      rowDelta < 0
+        ? row.previousElementSibling
+        : rowDelta > 0
+        ? row.nextElementSibling
+        : row;
     if (!nextRow) return;
 
     let nextCol = colIndex + colDelta;
@@ -174,159 +233,197 @@ export default function WeeklyTable({
   };
 
   return (
-    <div className={`rounded-2xl bg-base-100 shadow ${!isAdmin ? "pt-8" : "p-6"} ${isAdmin ? "" : "px-4"}`}>
-      <div className={`flex items-center ${isAdmin ? "justify-between" : "justify-start"} px-2 pt-4`}>
+    <div
+      className={`rounded-2xl bg-base-100 shadow ${
+        !isAdmin ? "pt-8" : "p-6"
+      } ${isAdmin ? "" : "px-4"}`}
+    >
+      <div
+        className={`flex items-center ${
+          isAdmin ? "justify-between" : "justify-start"
+        } px-2 pt-4`}
+      >
         <h2>{title}</h2>
         {isAdmin && (
-          <button className="btn btn-primary btn-sm" onClick={() => setOpenAdd(true)}>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => setOpenAdd(true)}
+          >
             + Add Reps
           </button>
         )}
       </div>
 
-    <div className="mt-3 overflow-x-auto">
-  <table className="table w-full">
-    <thead className="bg-slate-100/90 text-slate-700 [&>tr>th]:border-b [&>tr>th]:border-slate-200">
-      <tr>
-        <th className="min-w-[180px]">Agent</th>
-        <th className="min-w-[120px]">Sales ID</th>
+      <div className="mt-3 overflow-x-auto">
+        <table className="table w-full">
+          <thead className="bg-slate-100/90 text-slate-700 [&>tr>th]:border-b [&>tr>th]:border-slate-200">
+            <tr>
+              <th className="min-w-[180px]">Agent</th>
+              <th className="min-w-[120px]">Sales ID</th>
 
-        {DAYS.map((d, i) => (
-          <th key={d} className={`text-center ${!isAdmin ? "px-5" : ""}`}>
-            <div className="flex flex-col items-center leading-tight">
-              <span className="font-medium">{d}</span>
-              <span className="text-xs text-slate-500">
-                {
-                  new Date(
-                    new Date(weekISO).getFullYear(),
-                    new Date(weekISO).getMonth(),
-                    new Date(weekISO).getDate() + i
-                  ).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-                }
-              </span>
-            </div>
-          </th>
-        ))}
+              {DAYS.map((d, i) => (
+                <th
+                  key={d}
+                  className={`text-center ${!isAdmin ? "px-5" : ""}`}
+                >
+                  <div className="flex flex-col items-center leading-tight">
+                    <span className="font-medium">{d}</span>
+                    <span className="text-xs text-slate-500">
+                      {fmtHeaderDate(headerDates[i])}
+                    </span>
+                  </div>
+                </th>
+              ))}
 
-        <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>TOTAL</th>
-        <th className={`min-w-[100px] text-center ${!isAdmin ? "px-5" : ""}`}>GOAL</th>
-        <th className="min-w-[160px]">Progress</th>
-        <th className="min-w-[140px]">Location</th>
-        {isAdmin && <th />}
-      </tr>
-    </thead>
+              <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>
+                TOTAL
+              </th>
+              <th
+                className={`min-w-[100px] text-center ${
+                  !isAdmin ? "px-5" : ""
+                }`}
+              >
+                GOAL
+              </th>
+              <th className="min-w-[160px]">Progress</th>
+              <th className="min-w-[140px]">Location</th>
+              {isAdmin && <th />}
+            </tr>
+          </thead>
 
-    <tbody
-      className="
-        [&>tr:nth-child(odd)]:bg-white
-        [&>tr:nth-child(even)]:bg-slate-50
-        [&>tr>td]:border-b [&>tr>td]:border-slate-200
-      "
-    >
-      {rows.map((r) => {
-        const arr = r[metricKey] || Array(7).fill(0);
-        const total = arr.reduce((a, b) => a + clampNum(b), 0);
-        const goal = clampNum(r[goalKey]);
-        const pct = goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : 0;
+          <tbody
+            className="
+              [&>tr:nth-child(odd)]:bg-white
+              [&>tr:nth-child(even)]:bg-slate-50
+              [&>tr>td]:border-b [&>tr>td]:border-slate-200
+            "
+          >
+            {rows.map((r) => {
+              const arr = r[metricKey] || Array(7).fill(0);
+              const total = arr.reduce((a, b) => a + clampNum(b), 0);
+              const goal = clampNum(r[goalKey]);
+              const pct =
+                goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : 0;
 
-        return (
-          <tr key={`${r.id}-${r.name}`}>
-            <td className="font-medium">{r.name}</td>
+              return (
+                <tr key={`${r.id}-${r.name}`}>
+                  <td className="font-medium">{r.name}</td>
 
-            <td>
-              {isAdmin ? (
-                <input
-                  type="text"
-                  defaultValue={r.salesId || ""}
-                  className="input input-bordered input-xs w-28"
-                  data-type="salesId"
-                  data-rep={r.id}
-                  onBlur={(e) => saveSalesId(r, e.target.value)}
-                  onKeyDown={handleKeyNav}
-                />
-              ) : (
-                <span>{r.salesId ?? "—"}</span>
-              )}
-            </td>
+                  <td>
+                    {isAdmin ? (
+                      <input
+                        type="text"
+                        defaultValue={r.salesId || ""}
+                        className="input input-bordered input-xs w-28"
+                        data-type="salesId"
+                        data-rep={r.id}
+                        onBlur={(e) => saveSalesId(r, e.target.value)}
+                        onKeyDown={handleKeyNav}
+                      />
+                    ) : (
+                      <span>{r.salesId ?? "—"}</span>
+                    )}
+                  </td>
 
-            {DAYS.map((d, i) => (
-              <td key={d} className={`text-center ${!isAdmin ? "px-5" : ""}`}>
-                {isAdmin ? (
-                  <input
-                    type="number"
-                    min="0"
-                    defaultValue={arr[i] ?? ""}
-                    className="input input-bordered input-xs w-16 text-center"
-                    data-type="day"
-                    data-rep={r.id}
-                    data-day={i}
-                    onBlur={(e) => saveCell(r, i, e.target.value)}
-                    onKeyDown={handleKeyNav}
-                  />
-                ) : (
-                  <span>{arr[i] ?? ""}</span>
-                )}
-              </td>
-            ))}
+                  {DAYS.map((d, i) => (
+                    <td
+                      key={d}
+                      className={`text-center ${!isAdmin ? "px-5" : ""}`}
+                    >
+                      {isAdmin ? (
+                        <input
+                          type="number"
+                          min="0"
+                          defaultValue={arr[i] ?? ""}
+                          className="input input-bordered input-xs w-16 text-center"
+                          data-type="day"
+                          data-rep={r.id}
+                          data-day={i}
+                          onBlur={(e) => saveCell(r, i, e.target.value)}
+                          onKeyDown={handleKeyNav}
+                        />
+                      ) : (
+                        <span>{arr[i] ?? ""}</span>
+                      )}
+                    </td>
+                  ))}
 
-            <td className={`text-center font-semibold ${!isAdmin ? "px-5" : ""}`}>
-              {total}
-            </td>
+                  <td
+                    className={`text-center font-semibold ${
+                      !isAdmin ? "px-5" : ""
+                    }`}
+                  >
+                    {total}
+                  </td>
 
-            <td className={`text-center ${!isAdmin ? "px-5" : ""}`}>
-              {isAdmin ? (
-                <input
-                  type="number"
-                  min="0"
-                  defaultValue={goal ?? ""}
-                  className="input input-bordered input-xs w-20 text-center"
-                  data-type="goal"
-                  data-rep={r.id}
-                  onBlur={(e) => saveGoal(r, e.target.value)}
-                  onKeyDown={handleKeyNav}
-                />
-              ) : (
-                <span>{goal === 0 ? 0 : goal || ""}</span>
-              )}
-            </td>
+                  <td className={`text-center ${!isAdmin ? "px-5" : ""}`}>
+                    {isAdmin ? (
+                      <input
+                        type="number"
+                        min="0"
+                        defaultValue={goal ?? ""}
+                        className="input input-bordered input-xs w-20 text-center"
+                        data-type="goal"
+                        data-rep={r.id}
+                        onBlur={(e) => saveGoal(r, e.target.value)}
+                        onKeyDown={handleKeyNav}
+                      />
+                    ) : (
+                      <span>{goal === 0 ? 0 : goal || ""}</span>
+                    )}
+                  </td>
 
-            <td>
-              <div className="flex items-center gap-2">
-                <progress className="progress progress-secondary w-28" value={pct} max="100" />
-                <span className="text-xs opacity-70 w-10">{pct}%</span>
-              </div>
-            </td>
+                  <td>
+                    <div className="flex items-center gap-2">
+                      <progress
+                        className="progress progress-secondary w-28"
+                        value={pct}
+                        max="100"
+                      />
+                      <span className="text-xs opacity-70 w-10">{pct}%</span>
+                    </div>
+                  </td>
 
-            <td>{r.team || ""}</td>
+                  <td>{r.team || ""}</td>
 
-            {isAdmin && (
-              <td className="text-right">
-                <button className="btn btn-ghost btn-xs" onClick={() => removeRep(r.id)}>
-                  Delete
-                </button>
-              </td>
-            )}
-          </tr>
-        );
-      })}
-    </tbody>
+                  {isAdmin && (
+                    <td className="text-right">
+                      <button
+                        className="btn btn-ghost btn-xs"
+                        onClick={() => removeRep(r.id)}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
 
-  <tfoot className="bg-slate-100/90 [&>tr>th]:border-t [&>tr>th]:border-slate-200">
-      <tr>
-        <th className="text-right">Totals</th>
-        <th />
-        {colTotals.dayTotals.map((v, i) => (
-          <th key={i} className={`text-center ${!isAdmin ? "px-5" : ""}`}>{v}</th>
-        ))}
-        <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>{colTotals.weekTotal}</th>
-        <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>—</th>
-        <th>—</th>
-        <th>—</th>
-        {isAdmin && <th />}
-      </tr>
-    </tfoot>
-  </table>
-</div>
+          <tfoot className="bg-slate-100/90 [&>tr>th]:border-t [&>tr>th]:border-slate-200">
+            <tr>
+              <th className="text-right">Totals</th>
+              <th />
+              {colTotals.dayTotals.map((v, i) => (
+                <th
+                  key={i}
+                  className={`text-center ${!isAdmin ? "px-5" : ""}`}
+                >
+                  {v}
+                </th>
+              ))}
+              <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>
+                {colTotals.weekTotal}
+              </th>
+              <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>—</th>
+              <th>—</th>
+              <th>—</th>
+              {isAdmin && <th />}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
 
       <AddRepsModal
         weekISO={weekISO}
