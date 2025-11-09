@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import {
   deleteDoc, doc, onSnapshot, collection, setDoc, getDocs
 } from "firebase/firestore";
@@ -20,6 +20,7 @@ export default function WeeklyTable({
   const [rows, setRows] = useState([]);
   const [openAdd, setOpenAdd] = useState(false);
 
+  // Load rows (alphabetical) with previous-week fallback (zeroed)
   useEffect(() => {
     let cancelled = false;
 
@@ -27,10 +28,8 @@ export default function WeeklyTable({
       if (cancelled) return;
 
       const all = s.docs.map((d) => ({ id: d.id, ...d.data() }));
-      let filtered =
-        teamFilter === "All" ? all : all.filter((r) => (r.team || "") === teamFilter);
+      let filtered = teamFilter === "All" ? all : all.filter((r) => (r.team || "") === teamFilter);
 
-      // alpha sort by name (always)
       filtered = filtered.sort((a, b) =>
         (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })
       );
@@ -40,7 +39,7 @@ export default function WeeklyTable({
         return;
       }
 
-      // fallback to prior week roster (zeroed) for viewers
+      // Fallback to prior week roster (zeroed)
       const prevISO = prevWeekISO(weekISO);
       const prevSnap = await getDocs(collection(db, base, prevISO, "reps"));
       let prevFiltered = prevSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -53,14 +52,18 @@ export default function WeeklyTable({
         .sort((a, b) =>
           (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })
         )
-        .map((r) => ({ ...r, [metricKey]: [0,0,0,0,0,0,0] }));
+        .map((r) => ({ ...r, [metricKey]: [0, 0, 0, 0, 0, 0, 0] }));
 
       if (!cancelled) setRows(prevFiltered);
     });
 
-    return () => { cancelled = true; unsub(); };
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   }, [base, weekISO, teamFilter, metricKey]);
 
+  // Totals
   const colTotals = useMemo(() => {
     const dayTotals = Array(7).fill(0);
     let weekTotal = 0;
@@ -72,16 +75,103 @@ export default function WeeklyTable({
     return { dayTotals, weekTotal };
   }, [rows, metricKey]);
 
-  const saveCell = async (r, dayIdx, value) => {
-    const arr = [...(r[metricKey] || Array(7).fill(0))];
-    arr[dayIdx] = clampNum(value);
-    await setDoc(doc(db, base, weekISO, "reps", r.id), { [metricKey]: arr }, { merge: true });
+  // Saves
+  const saveCell = async (rep, dayIdx, value) => {
+    const n = value === "" ? 0 : clampNum(value);
+    const arr = [...(rep[metricKey] || Array(7).fill(0))];
+    arr[dayIdx] = n;
+    await setDoc(doc(db, base, weekISO, "reps", rep.id), { [metricKey]: arr }, { merge: true });
   };
-  const saveGoal = async (r, value) =>
-    setDoc(doc(db, base, weekISO, "reps", r.id), { [goalKey]: clampNum(value) }, { merge: true });
-  const saveSalesId = async (r, value) =>
-    setDoc(doc(db, base, weekISO, "reps", r.id), { salesId: value.trim() }, { merge: true });
+  const saveGoal = async (rep, value) =>
+    setDoc(doc(db, base, weekISO, "reps", rep.id), { [goalKey]: value === "" ? 0 : clampNum(value) }, { merge: true });
+  const saveSalesId = async (rep, value) =>
+    setDoc(doc(db, base, weekISO, "reps", rep.id), { salesId: value.trim() }, { merge: true });
   const removeRep = async (id) => deleteDoc(doc(db, base, weekISO, "reps", id));
+
+  // Excel-like navigation (save THEN move)
+  const moveFocus = useCallback((td, rowDelta, colDelta) => {
+    if (!td) return;
+    const row = td.parentElement;
+    const tbody = row?.parentElement;
+    if (!row || !tbody) return;
+
+    const colIndex = [...row.children].indexOf(td);
+    const nextRow =
+      rowDelta < 0 ? row.previousElementSibling :
+      rowDelta > 0 ? row.nextElementSibling : row;
+    if (!nextRow) return;
+
+    let nextCol = colIndex + colDelta;
+    nextCol = Math.max(0, Math.min(nextRow.children.length - 1, nextCol));
+
+    const input = nextRow.children[nextCol]?.querySelector("input");
+    if (input) {
+      input.focus();
+      input.select();
+    }
+  }, []);
+
+  const commitThenMove = async (e, td, dir) => {
+    const el = e.target;
+    const type = el.dataset.type; // "day" | "goal" | "salesId"
+    const repId = el.dataset.rep;
+    const rep = rows.find((x) => x.id === repId);
+    if (!rep) return;
+
+    if (type === "day") {
+      await saveCell(rep, Number(el.dataset.day), el.value);
+    } else if (type === "goal") {
+      await saveGoal(rep, el.value);
+    } else if (type === "salesId") {
+      await saveSalesId(rep, el.value);
+    }
+
+    const map = { down: [1, 0], up: [-1, 0], right: [0, 1], left: [0, -1] };
+    const [dr, dc] = map[dir] || [0, 0];
+    moveFocus(td, dr, dc);
+  };
+
+  const handleKeyNav = async (e) => {
+    const td = e.target.closest("td");
+    if (!td) return;
+
+    // Left/right only jump when caret at edges
+    if (e.key === "ArrowRight") {
+      if (e.target.selectionStart === e.target.value.length) {
+        e.preventDefault();
+        moveFocus(td, 0, 1);
+      }
+      return;
+    }
+    if (e.key === "ArrowLeft") {
+      if (e.target.selectionStart === 0) {
+        e.preventDefault();
+        moveFocus(td, 0, -1);
+      }
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      await commitThenMove(e, td, "down");
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      await commitThenMove(e, td, "up");
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      await commitThenMove(e, td, e.shiftKey ? "up" : "down");
+      return;
+    }
+    if (e.key === "Tab") {
+      e.preventDefault();
+      await commitThenMove(e, td, e.shiftKey ? "left" : "right");
+      return;
+    }
+  };
 
   return (
     <div className={`rounded-2xl bg-base-100 shadow ${!isAdmin ? "pt-8" : "p-6"} ${isAdmin ? "" : "px-4"}`}>
@@ -94,24 +184,28 @@ export default function WeeklyTable({
         )}
       </div>
 
-      <div className="overflow-x-auto mt-3">
-        <table className={`table ${!isAdmin ? "table-zebra" : ""}`}>
-          <thead>
-            <tr>
-              <th className="min-w-[180px]">Agent</th>
-              <th className="min-w-[120px]">Sales ID</th>
-              {DAYS.map((d) => (
-                <th key={d} className={`text-center ${!isAdmin ? "px-5" : ""}`}>{d}</th>
-              ))}
-              <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>TOTAL</th>
-              <th className={`min-w-[100px] text-center ${!isAdmin ? "px-5" : ""}`}>GOAL</th>
-              <th className="min-w-[160px]">Progress</th>
-              <th className="min-w-[140px]">Location</th>
-              {isAdmin && <th />}
-            </tr>
-          </thead>
+    <div className="mt-3 overflow-x-auto">
+  <table className="table w-full">
+    <thead className="bg-slate-100/90 text-slate-700 [&>tr>th]:border-b [&>tr>th]:border-slate-200">
+      <tr>
+        <th className="min-w-[180px]">Agent</th>
+        <th className="min-w-[120px]">Sales ID</th>
+        {DAYS.map((d) => (
+          <th key={d} className={`text-center ${!isAdmin ? "px-5" : ""}`}>{d}</th>
+        ))}
+        <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>TOTAL</th>
+        <th className={`min-w-[100px] text-center ${!isAdmin ? "px-5" : ""}`}>GOAL</th>
+        <th className="min-w-[160px]">Progress</th>
+        <th className="min-w-[140px]">Location</th>
+        {isAdmin && <th />}
+      </tr>
+    </thead>
 
-          <tbody>
+           <tbody className="
+      [&>tr:nth-child(odd)]:bg-white
+      [&>tr:nth-child(even)]:bg-slate-50
+      [&>tr>td]:border-b [&>tr>td]:border-slate-200
+    ">
             {rows.map((r) => {
               const arr = r[metricKey] || Array(7).fill(0);
               const total = arr.reduce((a, b) => a + clampNum(b), 0);
@@ -128,44 +222,58 @@ export default function WeeklyTable({
                         type="text"
                         defaultValue={r.salesId || ""}
                         className="input input-bordered input-xs w-28"
+                        data-type="salesId"
+                        data-rep={r.id}
                         onBlur={(e) => saveSalesId(r, e.target.value)}
+                        onKeyDown={handleKeyNav}
                       />
                     ) : (
-                      <span>{r.salesId || "—"}</span>
+                      <span>{r.salesId ?? "—"}</span>
                     )}
                   </td>
 
-                  {DAYS.map((d, i) => (
-                    <td key={d} className={`text-center ${!isAdmin ? "px-5" : ""}`}>
-                      {isAdmin ? (
-                        <input
-                          type="number"
-                          min="0"
-                          defaultValue={arr[i] ?? 0}
-                          className="input input-bordered input-xs w-16 text-center"
-                          onBlur={(e) => saveCell(r, i, e.target.value)}
-                        />
-                      ) : (
-                        <span>{arr[i] ?? 0}</span>
-                      )}
-                    </td>
-                  ))}
+                {/* Mon..Sun */}
+{DAYS.map((d, i) => (
+  <td key={d} className={`text-center ${!isAdmin ? "px-5" : ""}`}>
+    {isAdmin ? (
+      <input
+        type="number"
+        min="0"
+        defaultValue={arr[i] ?? ""}             // shows 0; blank only if undefined/null
+        className="input input-bordered input-xs w-16 text-center"
+        data-type="day"
+        data-rep={r.id}
+        data-day={i}
+        onBlur={(e) => saveCell(r, i, e.target.value)}
+        onKeyDown={handleKeyNav}
+      />
+    ) : (
+      <span>{arr[i] ?? ""}</span>
+    )}
+  </td>
+))}
 
-                  <td className={`text-center font-semibold ${!isAdmin ? "px-5" : ""}`}>{total}</td>
+<td className={`text-center font-semibold ${!isAdmin ? "px-5" : ""}`}>
+  {total}
+</td>
 
-                  <td className={`text-center ${!isAdmin ? "px-5" : ""}`}>
-                    {isAdmin ? (
-                      <input
-                        type="number"
-                        min="0"
-                        defaultValue={goal}
-                        className="input input-bordered input-xs w-20 text-center"
-                        onBlur={(e) => saveGoal(r, e.target.value)}
-                      />
-                    ) : (
-                      <span>{goal}</span>
-                    )}
-                  </td>
+<td className={`text-center ${!isAdmin ? "px-5" : ""}`}>
+  {isAdmin ? (
+    <input
+      type="number"
+      min="0"
+      defaultValue={goal ?? ""}                 // shows 0; blank only if undefined/null
+      className="input input-bordered input-xs w-20 text-center"
+      data-type="goal"
+      data-rep={r.id}
+      onBlur={(e) => saveGoal(r, e.target.value)}
+      onKeyDown={handleKeyNav}
+    />
+  ) : (
+    <span>{goal === 0 ? 0 : goal || ""}</span>
+  )}
+</td>
+
 
                   <td>
                     <div className="flex items-center gap-2">
@@ -186,22 +294,22 @@ export default function WeeklyTable({
             })}
           </tbody>
 
-          <tfoot>
-            <tr>
-              <th className="text-right">Totals</th>
-              <th />
-              {colTotals.dayTotals.map((v, i) => (
-                <th key={i} className={`text-center ${!isAdmin ? "px-5" : ""}`}>{v}</th>
-              ))}
-              <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>{colTotals.weekTotal}</th>
-              <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>—</th>
-              <th>—</th>
-              <th>—</th>
-              {isAdmin && <th />}
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+  <tfoot className="bg-slate-100/90 [&>tr>th]:border-t [&>tr>th]:border-slate-200">
+      <tr>
+        <th className="text-right">Totals</th>
+        <th />
+        {colTotals.dayTotals.map((v, i) => (
+          <th key={i} className={`text-center ${!isAdmin ? "px-5" : ""}`}>{v}</th>
+        ))}
+        <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>{colTotals.weekTotal}</th>
+        <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>—</th>
+        <th>—</th>
+        <th>—</th>
+        {isAdmin && <th />}
+      </tr>
+    </tfoot>
+  </table>
+</div>
 
       <AddRepsModal
         weekISO={weekISO}

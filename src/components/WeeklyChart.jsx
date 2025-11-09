@@ -12,16 +12,16 @@ import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "../lib/firebase";
 
 // AB brand colors
-const AB_PRIMARY = "#101010";  // dark A
-const AB_LIME = "#D4E157";     // lime B
+const AB_PRIMARY = "#101010";
+const AB_LIME = "#D4E157";
 
 /**
  * Props:
- *  - base:       collection root (use "weeks")
- *  - weekISO:    "YYYY-MM-DD" (Monday)
+ *  - base:       "weeks"
+ *  - weekISO:    "YYYY-MM-DD"
  *  - metricKey:  "sales" | "knocks"
- *  - title:      string ("Weekly Sales" / "Weekly Knocks")
- *  - teamFilter: "All" | team name (optional)
+ *  - title:      string
+ *  - teamFilter: "All" | team
  */
 export default function WeeklyChart({
   base = "weeks",
@@ -30,7 +30,7 @@ export default function WeeklyChart({
   title = "Weekly Sales",
   teamFilter = "All",
 }) {
-  const [rows, setRows] = useState(null); // null = loading, [] = empty
+  const [rows, setRows] = useState(null); // null = loading
 
   useEffect(() => {
     const q = query(collection(db, base, weekISO, "reps"));
@@ -43,7 +43,8 @@ export default function WeeklyChart({
           const total = arr.reduce((a, b) => a + (Number(b) || 0), 0);
           return { id: d.id, name: v.name, total };
         })
-        .filter(Boolean);
+        .filter(Boolean)
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })); // alphabetical
       setRows(data);
     });
   }, [base, weekISO, metricKey, teamFilter]);
@@ -58,19 +59,16 @@ export default function WeeklyChart({
     <div className="rounded-2xl bg-base-100 p-4 sm:p-6 shadow">
       <h2>{title}</h2>
 
-      {/* Loading */}
       {rows === null && (
         <div className="mt-3 h-64 w-full animate-pulse rounded-xl bg-slate-200/60" />
       )}
 
-      {/* Empty */}
       {rows && rows.length === 0 && (
         <div className="mt-3 flex h-64 items-center justify-center text-sm text-slate-500">
           No data yet for this week.
         </div>
       )}
 
-      {/* Chart */}
       {rows && rows.length > 0 && (
         <div className="mt-3 h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">

@@ -25,20 +25,6 @@ export default function App() {
           onOpenLogin={() => setLoginOpen(true)}
         />
 
-        {/* simple secondary nav bar with links */}
-        {!navHidden && (
-          <div className="sticky top-[56px] z-30 bg-white/40 backdrop-blur border-b border-white/20">
-            <div className="mx-auto max-w-6xl px-4 py-2 flex gap-3">
-              <NavLink to="/sales" className={({isActive}) =>
-                `btn btn-sm ${isActive ? 'btn-primary' : 'btn-ghost'}`
-              }>Sales</NavLink>
-              <NavLink to="/knocks" className={({isActive}) =>
-                `btn btn-sm ${isActive ? 'btn-primary' : 'btn-ghost'}`
-              }>Knocks</NavLink>
-            </div>
-          </div>
-        )}
-
         <Routes>
           <Route path="/" element={<Navigate to="/sales" replace />} />
           <Route path="/sales" element={<SalesPage />} />

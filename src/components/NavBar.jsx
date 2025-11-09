@@ -1,10 +1,12 @@
+// src/components/Navbar.jsx
 import { useEffect, useState } from "react";
+import { NavLink } from "react-router-dom";
 import clsx from "clsx";
 
 export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLogin }) {
   const [scrolled, setScrolled] = useState(false);
 
-  // add shadow/border once user scrolls a bit
+  // Add shadow/border after slight scroll
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 4);
     onScroll();
@@ -27,15 +29,13 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
     <div
       className={clsx(
         "navbar sticky top-0 z-40",
-        // glass look
         "bg-white/30 backdrop-blur-xl backdrop-saturate-150",
-        // border/shadow when scrolled
         scrolled ? "border-b border-black/10 shadow-sm" : "border-b border-white/20"
       )}
       style={{ willChange: "transform" }}
     >
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-3 sm:px-4">
-        {/* left: logo + title */}
+        {/* Left: brand + hide */}
         <div className="flex items-center gap-2 sm:gap-3">
           <button
             className="btn btn-ghost btn-sm"
@@ -53,7 +53,22 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
           </div>
         </div>
 
-        {/* right: auth controls */}
+        {/* Center: primary nav */}
+        <nav className="hidden sm:flex items-center gap-1">
+          {isAdmin ? (
+            <>
+              <NavButton to="/sales">Sales</NavButton>
+              <NavButton to="/knocks">Knocks</NavButton>
+            </>
+          ) : (
+            <>
+              <DisabledButton>Sales</DisabledButton>
+              <DisabledButton>Knocks</DisabledButton>
+            </>
+          )}
+        </nav>
+
+        {/* Right: auth controls */}
         <div className="flex items-center gap-2">
           {isAdmin ? (
             <button className="btn btn-outline btn-sm" onClick={onLogout}>
@@ -67,5 +82,39 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
         </div>
       </div>
     </div>
+  );
+}
+
+/* ---------- helpers ---------- */
+
+function NavButton({ to, children }) {
+  return (
+    <NavLink
+      to={to}
+      className={({ isActive }) =>
+        clsx(
+          "btn btn-ghost btn-sm px-3",
+          "text-slate-800/90",
+          isActive && "btn-active bg-white/60 shadow-sm"
+        )
+      }
+      end
+    >
+      {children}
+    </NavLink>
+  );
+}
+
+function DisabledButton({ children }) {
+  return (
+    <button
+      className="btn btn-ghost btn-sm px-3 btn-disabled text-slate-400"
+      disabled
+      aria-disabled="true"
+      title="Login required"
+      type="button"
+    >
+      {children}
+    </button>
   );
 }
