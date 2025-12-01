@@ -10,6 +10,7 @@ import {
 import { db } from "../lib/firebase";
 import { DAYS, prevWeekISO } from "../utils/weeks.js";
 import AddRepsModal from "./AddRepsModal";
+import EditRepsModal from "./EditRepsModal";
 
 // Parse "YYYY-MM-DD" as LOCAL date to avoid UTC shift
 function parseLocalISO(iso) {
@@ -31,6 +32,7 @@ export default function WeeklyTable({
 }) {
   const [rows, setRows] = useState([]);
   const [openAdd, setOpenAdd] = useState(false);
+  const [repToEdit, setRepToEdit] = useState(null); // <-- per-rep edit
 
   // Header dates for Mon..Sun
   const headerDates = useMemo(() => {
@@ -245,12 +247,15 @@ export default function WeeklyTable({
       >
         <h2>{title}</h2>
         {isAdmin && (
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={() => setOpenAdd(true)}
-          >
-            + Add Reps
-          </button>
+          <div className="flex gap-2">
+            {/* Removed bulk "Edit Reps" – we now edit per row */}
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => setOpenAdd(true)}
+            >
+              Add Reps
+            </button>
+          </div>
         )}
       </div>
 
@@ -287,7 +292,7 @@ export default function WeeklyTable({
               </th>
               <th className="min-w-[160px]">Progress</th>
               <th className="min-w-[140px]">Location</th>
-              {isAdmin && <th />}
+              {isAdmin && <th className="min-w-[140px]" />} {/* actions */}
             </tr>
           </thead>
 
@@ -388,12 +393,20 @@ export default function WeeklyTable({
 
                   {isAdmin && (
                     <td className="text-right">
-                      <button
-                        className="btn btn-ghost btn-xs"
-                        onClick={() => removeRep(r.id)}
-                      >
-                        Delete
-                      </button>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          className="btn btn-ghost btn-xs"
+                          onClick={() => setRepToEdit(r)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-xs text-error"
+                          onClick={() => removeRep(r.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   )}
                 </tr>
@@ -430,6 +443,15 @@ export default function WeeklyTable({
         open={openAdd}
         onClose={() => setOpenAdd(false)}
         isAdmin={isAdmin}
+      />
+
+      {/* NEW: single-rep edit modal */}
+      <EditRepsModal
+        open={!!repToEdit}
+        onClose={() => setRepToEdit(null)}
+        base={base}                      // "weeks" or "knocks"
+        weekISO={weekISO}
+        reps={repToEdit ? [repToEdit] : []}
       />
     </div>
   );
