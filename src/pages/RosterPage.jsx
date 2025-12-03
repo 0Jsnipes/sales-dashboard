@@ -324,7 +324,7 @@ export default function RosterPage() {
       phone: editDraft.phone.trim(),
       social: editDraft.social.trim(),
     };
-    if (!payload.name || !payload.salesId) return;
+    if (!payload.name) return;
     setSavingEdit(true);
     try {
       await updateDoc(doc(db, "roster", editingId), payload);
