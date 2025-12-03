@@ -14,8 +14,8 @@ function parseBulk(input) {
     .filter(Boolean)
     .map((line) => {
       const parts = line.split(/\s*[|,]\s*/);
-      const [name, team = "", salesId = ""] = parts;
-      return { name: name?.trim(), team: team?.trim(), salesId: salesId?.trim() };
+      const [name, team = "", manager = ""] = parts;
+      return { name: name?.trim(), team: team?.trim(), manager: manager?.trim() };
     })
     .filter((r) => r.name);
 }
@@ -37,14 +37,15 @@ async function propagateForward({ weekISO, rows, horizon = 12 }) {
     for (const r of rows) {
       const key = `${(r.name || "").trim()}__${(r.team || "").trim()}`.toLowerCase();
       if (existing.has(key)) continue;
-      const stableId = key.replace(/\s+/g, "_") + (r.salesId ? `__${r.salesId}` : "");
+      const stableId =
+        key.replace(/\s+/g, "_") + (r.manager ? `__${r.manager.replace(/\s+/g, "_")}` : "");
       writes.push(
         setDoc(
           doc(repsCol, stableId || undefined),
           {
             name: r.name,
             team: r.team || "",
-            salesId: r.salesId || "",
+            manager: r.manager || "",
             salesGoal: Number(r.salesGoal || 0),
             knocksGoal: Number(r.knocksGoal || 0),
             sales: [0, 0, 0, 0, 0, 0, 0],
@@ -62,12 +63,12 @@ async function propagateForward({ weekISO, rows, horizon = 12 }) {
 export default function AddRepsModal({ weekISO, open, onClose, isAdmin = true }) {
   const [name, setName] = useState("");
   const [team, setTeam] = useState("");
-  const [salesId, setSalesId] = useState("");
+  const [manager, setManager] = useState("");
   const [bulk, setBulk] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  const reset = () => { setName(""); setTeam(""); setSalesId(""); setBulk(""); };
+  const reset = () => { setName(""); setTeam(""); setManager(""); setBulk(""); };
 
   const submit = async () => {
     setErr("");
@@ -77,7 +78,7 @@ export default function AddRepsModal({ weekISO, open, onClose, isAdmin = true })
 
       if (bulk.trim()) {
         const rows = parseBulk(bulk).map((r) => ({
-          name: r.name, team: r.team || "", salesId: r.salesId || "",
+          name: r.name, team: r.team || "", manager: r.manager || "",
           salesGoal: 0, knocksGoal: 0,
         }));
         await Promise.all(
@@ -91,7 +92,7 @@ export default function AddRepsModal({ weekISO, open, onClose, isAdmin = true })
         const row = {
           name: name.trim(),
           team: team.trim(),
-          salesId: salesId.trim(),
+          manager: manager.trim(),
           salesGoal: 0,
           knocksGoal: 0,
         };
@@ -126,9 +127,9 @@ export default function AddRepsModal({ weekISO, open, onClose, isAdmin = true })
           </div>
           <input
             className="input input-bordered"
-            placeholder="Sales ID (optional)"
-            value={salesId}
-            onChange={(e) => setSalesId(e.target.value)}
+            placeholder="Manager (optional)"
+            value={manager}
+            onChange={(e) => setManager(e.target.value)}
           />
         </div>
 
@@ -136,10 +137,10 @@ export default function AddRepsModal({ weekISO, open, onClose, isAdmin = true })
 
         <textarea
           className="textarea textarea-bordered h-36"
-          placeholder={`One per line. Name, Team, SalesID
+          placeholder={`One per line. Name, Team, Manager
 Examples:
-Brandon Jones, Baton Rouge, BJ-123
-Andrew Burch | Tulsa | AB-9
+Brandon Jones, Baton Rouge, Jane Smith
+Andrew Burch | Tulsa | Casey Lee
 Dahtnay Larkin`}
           value={bulk}
           onChange={(e) => setBulk(e.target.value)}

@@ -9,7 +9,7 @@ import Modal from "./Modal";
  * - onClose: () => void
  * - base: "weeks" | "knocks"
  * - weekISO: "YYYY-MM-DD"
- * - reps: [{ id, name, team, salesId, ... }]  // we use reps[0]
+ * - reps: [{ id, name, team, manager, ... }]  // we use reps[0]
  */
 export default function EditRepsModal({
   open,
