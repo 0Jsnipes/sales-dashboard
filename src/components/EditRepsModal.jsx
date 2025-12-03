@@ -18,10 +18,10 @@ export default function EditRepsModal({
   weekISO,
   reps = [],
 }) {
-  const rep = reps[0] || null;
+ const rep = reps[0] || null;
 
   const [name, setName] = useState("");
-  const [salesId, setSalesId] = useState("");
+  const [manager, setManager] = useState("");
   const [team, setTeam] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -29,19 +29,19 @@ export default function EditRepsModal({
   useEffect(() => {
     if (!open || !rep) {
       setName("");
-      setSalesId("");
+      setManager("");
       setTeam("");
       return;
     }
     setName(rep.name || "");
-    setSalesId(rep.salesId || "");
+    setManager(rep.manager || "");
     setTeam(rep.team || "");
   }, [open, rep]);
 
   const hasChanges =
     !!rep &&
     (name !== (rep.name || "") ||
-      salesId !== (rep.salesId || "") ||
+      manager !== (rep.manager || "") ||
       team !== (rep.team || ""));
 
   const handleSave = async () => {
@@ -57,7 +57,7 @@ export default function EditRepsModal({
         ref,
         {
           name: name.trim(),
-          salesId: salesId.trim(),
+          manager: manager.trim(),
           team: team.trim(),
         },
         { merge: true }
@@ -98,12 +98,12 @@ export default function EditRepsModal({
           </div>
 
           <div className="flex flex-col gap-2">
-            <label className="text-xs font-medium">Sales ID</label>
+            <label className="text-xs font-medium">Manager</label>
             <input
               type="text"
               className="input input-bordered input-sm w-full"
-              value={salesId}
-              onChange={(e) => setSalesId(e.target.value)}
+              value={manager}
+              onChange={(e) => setManager(e.target.value)}
             />
           </div>
 

@@ -7,7 +7,8 @@ import Navbar from "./components/NavBar.jsx";
 import LoginModal from "./components/LoginModal.jsx";
 import SalesPage from "./pages/SalesPage.jsx";
 import KnocksPage from "./pages/KnocksPage.jsx";
-
+import RosterPage from "./pages/RosterPage";
+import OnboardingPage from "./pages/Onboarding";
 export default function App() {
   const { isAdmin, loading } = useAuthRole();
   const [navHidden, setNavHidden] = useState(false);
@@ -29,6 +30,8 @@ export default function App() {
           <Route path="/" element={<Navigate to="/sales" replace />} />
           <Route path="/sales" element={<SalesPage />} />
           <Route path="/knocks" element={<KnocksPage />} />
+          <Route path="/roster" element={<RosterPage />} />
+          <Route path="/onboarding" element={<OnboardingPage />} />
         </Routes>
 
         <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />

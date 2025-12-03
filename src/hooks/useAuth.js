@@ -17,3 +17,10 @@ export function useAuthRole() {
   // anyone signed in is "admin"
   return { user, role: user ? "admin" : "viewer", isAdmin: !!user, loading };
 }
+
+// alias for backward compatibility
+export function useAuth() {
+  return useAuthRole();
+}
+
+export default useAuthRole;

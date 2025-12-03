@@ -15,3 +15,19 @@
 
   .card, .modal-box, .navbar, .table { @apply rounded-xl; }
 }
+
+@keyframes spin-pop {
+  0% {
+    transform: scale(0.9) rotate(0deg);
+  }
+  60% {
+    transform: scale(1.08) rotate(200deg);
+  }
+  100% {
+    transform: scale(1) rotate(360deg);
+  }
+}
+
+.spin-pop {
+  animation: spin-pop 0.4s ease;
+}

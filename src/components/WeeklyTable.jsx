@@ -29,6 +29,7 @@ export default function WeeklyTable({
   goalKey = "salesGoal",
   title = "Weekly Grid",
   teamFilter = "All",
+  managerFilter = "All",
 }) {
   const [rows, setRows] = useState([]);
   const [openAdd, setOpenAdd] = useState(false);
@@ -57,10 +58,13 @@ export default function WeeklyTable({
         if (cancelled) return;
 
         const all = s.docs.map((d) => ({ id: d.id, ...d.data() }));
-        let filtered =
-          teamFilter === "All"
-            ? all
-            : all.filter((r) => (r.team || "") === teamFilter);
+        let filtered = all;
+        if (teamFilter !== "All") {
+          filtered = filtered.filter((r) => (r.team || "") === teamFilter);
+        }
+        if (managerFilter !== "All") {
+          filtered = filtered.filter((r) => (r.manager || "") === managerFilter);
+        }
 
         filtered = filtered.sort((a, b) =>
           (a.name || "").localeCompare(b.name || "", undefined, {
@@ -82,10 +86,12 @@ export default function WeeklyTable({
           id: d.id,
           ...d.data(),
         }));
-        prevFiltered =
-          teamFilter === "All"
-            ? prevFiltered
-            : prevFiltered.filter((r) => (r.team || "") === teamFilter);
+        if (teamFilter !== "All") {
+          prevFiltered = prevFiltered.filter((r) => (r.team || "") === teamFilter);
+        }
+        if (managerFilter !== "All") {
+          prevFiltered = prevFiltered.filter((r) => (r.manager || "") === managerFilter);
+        }
 
         prevFiltered = prevFiltered
           .sort((a, b) =>
@@ -103,7 +109,7 @@ export default function WeeklyTable({
       cancelled = true;
       unsub();
     };
-  }, [base, weekISO, teamFilter, metricKey]);
+  }, [base, weekISO, teamFilter, managerFilter, metricKey]);
 
   // Totals
   const colTotals = useMemo(() => {
@@ -136,15 +142,23 @@ export default function WeeklyTable({
       { merge: true }
     );
 
-  const saveSalesId = async (rep, value) =>
-    setDoc(
-      doc(db, base, weekISO, "reps", rep.id),
-      { salesId: value.trim() },
-      { merge: true }
-    );
-
   const removeRep = async (id) =>
     deleteDoc(doc(db, base, weekISO, "reps", id));
+
+  const removeAll = async () => {
+    const msgs = [
+      "Are you sure?",
+      "Are you really sure?",
+      "Do you know what this will do?",
+      "Okay your funeral if you mess this up!",
+    ];
+    for (const m of msgs) {
+      if (!window.confirm(m)) return;
+    }
+    const snap = await getDocs(collection(db, base, weekISO, "reps"));
+    const deletes = snap.docs.map((d) => deleteDoc(d.ref));
+    await Promise.all(deletes);
+  };
 
   // Excel-like navigation (save THEN move)
   const moveFocus = useCallback((td, rowDelta, colDelta) => {
@@ -174,7 +188,7 @@ export default function WeeklyTable({
 
   const commitThenMove = async (e, td, dir) => {
     const el = e.target;
-    const type = el.dataset.type; // "day" | "goal" | "salesId"
+    const type = el.dataset.type; // "day" | "goal"
     const repId = el.dataset.rep;
     const rep = rows.find((x) => x.id === repId);
     if (!rep) return;
@@ -183,8 +197,6 @@ export default function WeeklyTable({
       await saveCell(rep, Number(el.dataset.day), el.value);
     } else if (type === "goal") {
       await saveGoal(rep, el.value);
-    } else if (type === "salesId") {
-      await saveSalesId(rep, el.value);
     }
 
     const map = { down: [1, 0], up: [-1, 0], right: [0, 1], left: [0, -1] };
@@ -238,7 +250,7 @@ export default function WeeklyTable({
     <div
       className={`rounded-2xl bg-base-100 shadow ${
         !isAdmin ? "pt-8" : "p-6"
-      } ${isAdmin ? "" : "px-4"}`}
+      } ${isAdmin ? "" : "px-4"} max-w-10xl mx-auto mb-6`}
     >
       <div
         className={`flex items-center ${
@@ -248,7 +260,6 @@ export default function WeeklyTable({
         <h2>{title}</h2>
         {isAdmin && (
           <div className="flex gap-2">
-            {/* Removed bulk "Edit Reps" – we now edit per row */}
             <button
               className="btn btn-primary btn-sm"
               onClick={() => setOpenAdd(true)}
@@ -264,7 +275,7 @@ export default function WeeklyTable({
           <thead className="bg-slate-100/90 text-slate-700 [&>tr>th]:border-b [&>tr>th]:border-slate-200">
             <tr>
               <th className="min-w-[180px]">Agent</th>
-              <th className="min-w-[120px]">Sales ID</th>
+              <th className="min-w-[140px]">Manager</th>
 
               {DAYS.map((d, i) => (
                 <th
@@ -314,21 +325,7 @@ export default function WeeklyTable({
                 <tr key={`${r.id}-${r.name}`}>
                   <td className="font-medium">{r.name}</td>
 
-                  <td>
-                    {isAdmin ? (
-                      <input
-                        type="text"
-                        defaultValue={r.salesId || ""}
-                        className="input input-bordered input-xs w-28"
-                        data-type="salesId"
-                        data-rep={r.id}
-                        onBlur={(e) => saveSalesId(r, e.target.value)}
-                        onKeyDown={handleKeyNav}
-                      />
-                    ) : (
-                      <span>{r.salesId ?? "—"}</span>
-                    )}
-                  </td>
+                  <td className="text-sm">{r.manager || ""}</td>
 
                   {DAYS.map((d, i) => (
                     <td
@@ -438,6 +435,14 @@ export default function WeeklyTable({
         </table>
       </div>
 
+      {isAdmin && (
+        <div className="mt-4 flex justify-end">
+          <button className="btn btn-error btn-sm" onClick={removeAll}>
+            Delete All
+          </button>
+        </div>
+      )}
+
       <AddRepsModal
         weekISO={weekISO}
         open={openAdd}
@@ -445,11 +450,10 @@ export default function WeeklyTable({
         isAdmin={isAdmin}
       />
 
-      {/* NEW: single-rep edit modal */}
       <EditRepsModal
         open={!!repToEdit}
         onClose={() => setRepToEdit(null)}
-        base={base}                      // "weeks" or "knocks"
+        base={base} // "weeks" or "knocks"
         weekISO={weekISO}
         reps={repToEdit ? [repToEdit] : []}
       />

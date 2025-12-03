@@ -54,11 +54,13 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
         </div>
 
         {/* Center: primary nav */}
-        <nav className="hidden sm:flex items-center gap-1">
+        <nav className="hidden sm:flex items-center gap-5">
           {isAdmin ? (
             <>
               <NavButton to="/sales">Sales</NavButton>
               <NavButton to="/knocks">Knocks</NavButton>
+              <NavButton to="/roster">Roster</NavButton>
+              <NavButton to="/onboarding">Onboarding</NavButton>
             </>
           ) : (
             <>
@@ -95,7 +97,7 @@ function NavButton({ to, children }) {
         clsx(
           "btn btn-ghost btn-sm px-3",
           "text-slate-800/90",
-          isActive && "btn-active bg-white/60 shadow-sm"
+          isActive && "btn-active bg-transparent border-b-2 border-yellow-200 text-slate-900 font-semibold"
         )
       }
       end
