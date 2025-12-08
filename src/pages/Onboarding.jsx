@@ -143,7 +143,8 @@ Review Your Training Materials: Visit the T-Fiber Training Google Drive to acces
 
 Account Setup in SaraPlus: Once you’ve submitted your onboarding link, our admin team will upload you as a new user in SaraPlus. You’ll then receive an email containing your SaraPlus credentials and a temporary password to log in and set up your account. After creating your password and logging in, you’ll be redirected to the SaraPlus homepage — from there, you’ll be ready to begin DIRECTV order entry.
 
-Onboarding Link: https://abenergymarketing.com/fiber
+Onboarding Link: 
+https://abenergymarketing.com/fiber
 
 If you encounter any issues or have questions during this process, reach out to your onboarding coordinator right away — we’re here to help you get set up and earning fast.
 Welcome to the team and congratulations on joining the T-Fiber and DIRECTV program!`,

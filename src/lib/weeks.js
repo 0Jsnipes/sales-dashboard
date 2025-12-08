@@ -29,6 +29,7 @@ export async function ensureWeekWithAutoclone(weekISO) {
     writes.push(setDoc(repRef, {
       name: data.name,
       team: data.team || "",
+      manager: data.manager || "",
       // carry both goals
       salesGoal: Number(data.salesGoal || 0),
       knocksGoal: Number(data.knocksGoal || 0),
