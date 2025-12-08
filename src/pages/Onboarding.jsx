@@ -382,7 +382,7 @@ export default function OnboardingPage() {
                             </select>
                             <button
                               type="button"
-                              className="btn btn-xs bg-sky-500 text-white hover:bg-sky-600 hover:scale-105 transition"
+                              className="btn btn-sm rounded-full p-1 bg-sky-300 text-black text-xs hover:bg-sky-600 hover:scale-105 transition"
                               title={rep.email ? `Send to ${rep.email}` : "No email on file"}
                               onClick={(e) => {
                                 e.preventDefault();
