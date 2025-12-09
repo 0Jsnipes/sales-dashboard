@@ -6,6 +6,7 @@ import {
   collection,
   setDoc,
   getDocs,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { DAYS, prevWeekISO } from "../utils/weeks.js";
@@ -52,56 +53,95 @@ export default function WeeklyTable({
   useEffect(() => {
     let cancelled = false;
 
+    const keyForRep = (rep) => {
+      const sid = (rep.salesId || rep.sid || "").trim().toLowerCase();
+      if (sid) return `sid:${sid}`;
+      const name = (rep.name || "").trim().toLowerCase();
+      if (name) return `name:${name}`;
+      return null;
+    };
+    const keyForRow = (rep) => keyForRep(rep) || (rep.id ? `id:${rep.id}` : null);
+
+    const ensureRowShape = (r) => ({
+      ...r,
+      sales: Array.isArray(r.sales) && r.sales.length === 7 ? r.sales : Array(7).fill(0),
+      knocks: Array.isArray(r.knocks) && r.knocks.length === 7 ? r.knocks : Array(7).fill(0),
+      salesGoal: clampNum(r.salesGoal),
+      knocksGoal: clampNum(r.knocksGoal),
+      deleted: !!r.deleted,
+    });
+
     const unsub = onSnapshot(
       collection(db, base, weekISO, "reps"),
       async (s) => {
         if (cancelled) return;
 
-        const all = s.docs.map((d) => ({ id: d.id, ...d.data() }));
-        let filtered = all;
+        let current = s.docs.map((d) => ensureRowShape({ id: d.id, ...d.data() }));
         if (teamFilter !== "All") {
-          filtered = filtered.filter((r) => (r.team || "") === teamFilter);
+          current = current.filter((r) => (r.team || "") === teamFilter);
         }
         if (managerFilter !== "All") {
-          filtered = filtered.filter((r) => (r.manager || "") === managerFilter);
+          current = current.filter((r) => (r.manager || "") === managerFilter);
+        }
+        const deletedKeys = new Set(
+          current.filter((r) => r.deleted).map((r) => keyForRow(r)).filter(Boolean)
+        );
+        current = current.filter((r) => !r.deleted);
+
+        // Backfill missing reps from previous week directly into Firestore so rows are real docs
+        const prevISO = prevWeekISO(weekISO);
+        const prevSnap = await getDocs(collection(db, base, prevISO, "reps"));
+        const existingKeys = new Set([
+          ...current.map((r) => keyForRow(r)).filter(Boolean),
+          ...deletedKeys,
+        ]);
+
+        const missingWrites = [];
+        prevSnap.forEach((d) => {
+          const data = ensureRowShape({ id: d.id, ...d.data() });
+          const key = keyForRow(data);
+          if (!key || existingKeys.has(key)) return;
+
+          existingKeys.add(key);
+          const payload = {
+            name: data.name || "",
+            manager: data.manager || "",
+            team: data.team || "",
+            salesGoal: data.salesGoal,
+            knocksGoal: data.knocksGoal,
+            sales: Array(7).fill(0),
+            knocks: Array(7).fill(0),
+          };
+          missingWrites.push({ id: d.id, payload });
+        });
+
+        if (missingWrites.length) {
+          await Promise.all(
+            missingWrites.map(({ id, payload }) =>
+              setDoc(doc(db, base, weekISO, "reps", id), payload, { merge: true })
+            )
+          );
         }
 
-        filtered = filtered.sort((a, b) =>
+        // Combine current docs with any just-created placeholders for immediate UI display
+        const mergedMap = new Map();
+        const addRow = (row) => {
+          const k = keyForRow(row);
+          if (!k) return;
+          mergedMap.set(k, row);
+        };
+        current.forEach(addRow);
+        missingWrites.forEach(({ id, payload }) =>
+          addRow({ id, ...payload })
+        );
+
+        const merged = Array.from(mergedMap.values()).sort((a, b) =>
           (a.name || "").localeCompare(b.name || "", undefined, {
             sensitivity: "base",
           })
         );
 
-        if (filtered.length > 0) {
-          setRows(filtered);
-          return;
-        }
-
-        // Fallback to prior week roster (zeroed)
-        const prevISO = prevWeekISO(weekISO);
-        const prevSnap = await getDocs(
-          collection(db, base, prevISO, "reps")
-        );
-        let prevFiltered = prevSnap.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        }));
-        if (teamFilter !== "All") {
-          prevFiltered = prevFiltered.filter((r) => (r.team || "") === teamFilter);
-        }
-        if (managerFilter !== "All") {
-          prevFiltered = prevFiltered.filter((r) => (r.manager || "") === managerFilter);
-        }
-
-        prevFiltered = prevFiltered
-          .sort((a, b) =>
-            (a.name || "").localeCompare(b.name || "", undefined, {
-              sensitivity: "base",
-            })
-          )
-          .map((r) => ({ ...r, [metricKey]: [0, 0, 0, 0, 0, 0, 0] }));
-
-        if (!cancelled) setRows(prevFiltered);
+        if (!cancelled) setRows(merged);
       }
     );
 
@@ -128,9 +168,16 @@ export default function WeeklyTable({
     const n = value === "" ? 0 : clampNum(value);
     const arr = [...(rep[metricKey] || Array(7).fill(0))];
     arr[dayIdx] = n;
+    const baseFields = {
+      name: rep.name || "",
+      manager: rep.manager || "",
+      team: rep.team || "",
+      salesGoal: clampNum(rep.salesGoal),
+      knocksGoal: clampNum(rep.knocksGoal),
+    };
     await setDoc(
       doc(db, base, weekISO, "reps", rep.id),
-      { [metricKey]: arr },
+      { ...baseFields, [metricKey]: arr },
       { merge: true }
     );
   };
@@ -138,12 +185,21 @@ export default function WeeklyTable({
   const saveGoal = async (rep, value) =>
     setDoc(
       doc(db, base, weekISO, "reps", rep.id),
-      { [goalKey]: value === "" ? 0 : clampNum(value) },
+      {
+        name: rep.name || "",
+        manager: rep.manager || "",
+        team: rep.team || "",
+        [goalKey]: value === "" ? 0 : clampNum(value),
+      },
       { merge: true }
     );
 
   const removeRep = async (id) =>
-    deleteDoc(doc(db, base, weekISO, "reps", id));
+    setDoc(
+      doc(db, base, weekISO, "reps", id),
+      { deleted: true, deletedAt: serverTimestamp() },
+      { merge: true }
+    );
 
   const removeAll = async () => {
     const msgs = [

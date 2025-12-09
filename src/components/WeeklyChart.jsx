@@ -38,6 +38,7 @@ export default function WeeklyChart({
       const data = s.docs
         .map((d) => {
           const v = d.data();
+          if (v.deleted) return null;
           if (teamFilter !== "All" && (v.team || "") !== teamFilter) return null;
           const arr = v[metricKey] || [];
           const total = arr.reduce((a, b) => a + (Number(b) || 0), 0);
