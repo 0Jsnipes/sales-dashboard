@@ -7,6 +7,8 @@ import {
   onSnapshot,
   updateDoc,
   serverTimestamp,
+  getDocs,
+  collectionGroup,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuth } from "../hooks/useAuth";
@@ -51,10 +53,13 @@ export default function RosterPage() {
     email: "",
     phone: "",
     social: "",
+    referredBy: "",
   });
   const [savingEdit, setSavingEdit] = useState(false);
   const [detailOpen, setDetailOpen] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [salesTotals, setSalesTotals] = useState({});
+  const [loadingSalesTotals, setLoadingSalesTotals] = useState(false);
   const fileInputRef = useRef(null);
 
   const normalizeProgram = (p) => {
@@ -161,6 +166,41 @@ export default function RosterPage() {
       setTerminated(list);
     });
     return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchTotals = async () => {
+      setLoadingSalesTotals(true);
+      try {
+        const snap = await getDocs(collectionGroup(db, "reps"));
+        const totals = {};
+        snap.forEach((d) => {
+          const data = d.data() || {};
+          const key =
+            (data.salesId || data.sid || "").trim() ||
+            (data.name || "").trim().toLowerCase();
+          if (!key) return;
+          const salesArr = Array.isArray(data.sales) ? data.sales : [];
+          const totalSales = salesArr.reduce(
+            (sum, v) => sum + (Number.isFinite(+v) ? +v : 0),
+            0
+          );
+          totals[key] = (totals[key] || 0) + totalSales;
+        });
+        if (!cancelled) setSalesTotals(totals);
+      } catch (err) {
+        console.error("Failed to load lifetime sales totals", err);
+      } finally {
+        if (!cancelled) setLoadingSalesTotals(false);
+      }
+    };
+
+    fetchTotals();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const managers = useMemo(() => {
@@ -272,6 +312,7 @@ export default function RosterPage() {
           email: target.email || "",
           phone: target.phone || "",
           social: target.social || "",
+          referredBy: target.referredBy || "",
           deletedAt: serverTimestamp(),
           deletedBy: user?.uid || null,
         });
@@ -295,6 +336,7 @@ export default function RosterPage() {
       email: rep.email || "",
       phone: rep.phone || "",
       social: rep.social || "",
+      referredBy: rep.referredBy || "",
     });
   };
 
@@ -309,6 +351,7 @@ export default function RosterPage() {
       email: "",
       phone: "",
       social: "",
+      referredBy: "",
     });
   };
 
@@ -323,6 +366,7 @@ export default function RosterPage() {
       email: editDraft.email.trim(),
       phone: editDraft.phone.trim(),
       social: editDraft.social.trim(),
+      referredBy: editDraft.referredBy.trim(),
     };
     if (!payload.name) return;
     setSavingEdit(true);
@@ -351,6 +395,7 @@ export default function RosterPage() {
         email: target.email || "",
         phone: target.phone || "",
         social: target.social || "",
+        referredBy: target.referredBy || "",
         createdAt: serverTimestamp(),
         createdBy: user?.uid || null,
       });
@@ -428,6 +473,26 @@ export default function RosterPage() {
       hour: "2-digit",
       minute: "2-digit",
     });
+  };
+
+  const tierColors = ["bg-emerald-500", "bg-sky-500", "bg-purple-500", "bg-amber-500", "bg-pink-500"];
+  const getRefProgress = (rep) => {
+    if (!(rep.referredBy || "").trim()) return null;
+    const key =
+      (rep.salesId || "").trim() ||
+      (rep.name || "").trim().toLowerCase();
+    if (!key) return null;
+    const total = salesTotals[key] || 0;
+    const tier = Math.floor(total / 10);
+    const percent = Math.min(((total % 10) / 10) * 100, 100);
+    const color = tierColors[Math.min(tier, tierColors.length - 1)] || tierColors[0];
+    return {
+      total,
+      tier,
+      percent,
+      color,
+      nextTarget: (tier + 1) * 10,
+    };
   };
 
   return (
@@ -688,7 +753,6 @@ export default function RosterPage() {
             >
               <tr>
                 <th className="min-w-[160px] text-center">Name</th>
-                <th className="min-w-[120px] text-center">Sales ID</th>
                 <th className="min-w-[140px] text-center">Manager</th>
                 <th className="min-w-[140px] text-center">Location</th>
                 <th className="min-w-[140px] text-center">Program</th>
@@ -707,6 +771,7 @@ export default function RosterPage() {
             >
               {(showTerminated ? terminated : visibleReps).map((r) => {
                 const isEditing = !showTerminated && editingId === r.id;
+                const progress = getRefProgress(r);
                 return (
                   <tr key={r.id}>
                     <td className="font-medium text-center">
@@ -720,6 +785,22 @@ export default function RosterPage() {
                             }
                           />
                           <div className="grid grid-cols-1 gap-1 text-left text-xs">
+                            <input
+                              className="input input-xs input-bordered w-full"
+                              placeholder="Sales ID"
+                              value={editDraft.salesId}
+                              onChange={(e) =>
+                                setEditDraft((prev) => ({ ...prev, salesId: e.target.value }))
+                              }
+                            />
+                            <input
+                              className="input input-xs input-bordered w-full"
+                              placeholder="Referred By"
+                              value={editDraft.referredBy}
+                              onChange={(e) =>
+                                setEditDraft((prev) => ({ ...prev, referredBy: e.target.value }))
+                              }
+                            />
                             <input
                               className="input input-xs input-bordered w-full"
                               placeholder="Email"
@@ -747,8 +828,21 @@ export default function RosterPage() {
                           </div>
                         </div>
                       ) : (
-                        <div className="relative flex items-center justify-center gap-2">
+                        <div className="relative flex items-center justify-center gap-3">
                           <span>{r.name}</span>
+                          {progress && (
+                            <div className="flex items-center gap-2">
+                              <div className="h-2 w-24 overflow-hidden rounded-full bg-slate-200">
+                                <div
+                                  className={`h-full ${progress.color}`}
+                                  style={{ width: `${progress.percent}%` }}
+                                />
+                              </div>
+                              <span className="text-[10px] text-slate-500">
+                                {progress.total} / {progress.nextTarget}
+                              </span>
+                            </div>
+                          )}
                           {!showTerminated && (
                             <div className="relative">
                               <button
@@ -775,16 +869,30 @@ export default function RosterPage() {
                                   <div className="font-semibold text-slate-800">{r.name}</div>
                                   <div className="mt-1 space-y-1 text-slate-600">
                                     <div>
+                                      <span className="font-semibold">Sales ID:</span>{" "}
+                                      {r.salesId || "N/A"}
+                                    </div>
+                                    <div>
+                                      <span className="font-semibold">Referred by:</span>{" "}
+                                      {r.referredBy || "N/A"}
+                                    </div>
+                                    {progress && (
+                                      <div>
+                                        <span className="font-semibold">Lifetime sales:</span>{" "}
+                                        {progress.total} (Tier {progress.tier + 1})
+                                      </div>
+                                    )}
+                                    <div>
                                       <span className="font-semibold">Email:</span>{" "}
-                                      {r.email || "—"}
+                                      {r.email || "N/A"}
                                     </div>
                                     <div>
                                       <span className="font-semibold">Phone:</span>{" "}
-                                      {r.phone || "—"}
+                                      {r.phone || "N/A"}
                                     </div>
                                     <div>
                                       <span className="font-semibold">Social:</span>{" "}
-                                      {r.social || "—"}
+                                      {r.social || "N/A"}
                                     </div>
                                   </div>
                                 </div>
@@ -792,19 +900,6 @@ export default function RosterPage() {
                             </div>
                           )}
                         </div>
-                      )}
-                    </td>
-                    <td className="text-center">
-                      {isEditing ? (
-                        <input
-                          className="input input-xs input-bordered w-full"
-                          value={editDraft.salesId}
-                          onChange={(e) =>
-                            setEditDraft((prev) => ({ ...prev, salesId: e.target.value }))
-                          }
-                        />
-                      ) : (
-                        r.salesId
                       )}
                     </td>
                     <td className="text-center">
@@ -929,7 +1024,7 @@ export default function RosterPage() {
               {(showTerminated ? terminated : visibleReps).length === 0 && (
                 <tr>
                   <td
-                    colSpan={isAdmin ? 7 : 6}
+                    colSpan={isAdmin ? 6 : 5}
                     className="py-6 text-center text-sm text-slate-500"
                   >
                     {showTerminated
