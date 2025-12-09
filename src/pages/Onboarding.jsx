@@ -258,6 +258,64 @@ export default function OnboardingPage() {
     return `mailto:${to}?subject=${subject}&body=${bodyEnc}`;
   };
 
+  const formatCsvValue = (value) => {
+    const str = value == null ? "" : String(value);
+    const escaped = str.replace(/"/g, '""');
+    return `"${escaped}"`;
+  };
+
+  const handleExport = () => {
+    const reps = [...grouped.att, ...grouped.tfiber, ...grouped.frontier, ...grouped.other];
+    if (!reps.length) {
+      alert("No onboarding reps to export.");
+      return;
+    }
+
+    const rows = reps.map((rep) => {
+      const remaining = rep.tasks.filter((t) => !rep.checks[t]).map((t) => labelMap[t] || t);
+      const completed = rep.tasks.filter((t) => rep.checks[t]).map((t) => labelMap[t] || t);
+      const total = rep.tasks.length || 0;
+      const doneCount = completed.length;
+      return [
+        rep.name || "",
+        rep.salesId || "",
+        rep.email || "",
+        rep.program || "",
+        rep.manager || "",
+        `${rep.progress}%`,
+        remaining.join("; "),
+        completed.join("; "),
+        `${doneCount} out of ${total}`,
+        new Date().toISOString(),
+      ];
+    });
+
+    const header = [
+      "Name",
+      "Sales ID",
+      "Email",
+      "Program",
+      "Manager",
+      "Progress",
+      "Remaining Tasks",
+      "Completed Tasks",
+      "Tasks Done/Total",
+      "Exported At",
+    ];
+
+    const csv = [header, ...rows].map((row) => row.map(formatCsvValue).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `onboarding-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  };
+
   return (
     <div className="p-4 lg:p-6">
       <div className="mx-auto max-w-7xl space-y-6 rounded-3xl bg-white/60 p-6 shadow-lg backdrop-blur">
@@ -308,9 +366,19 @@ export default function OnboardingPage() {
                 Reps not yet fully onboarded, grouped by program.
               </p>
             </div>
-            <span className="badge badge-outline">
-              {loading ? "Loading..." : `${totalRows} reps`}
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn btn-sm p-1 rounded-full bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50"
+                onClick={handleExport}
+                disabled={loading || totalRows === 0}
+              >
+                Export CSV
+              </button>
+              <span className="badge badge-outline">
+                {loading ? "Loading..." : `${totalRows} reps`}
+              </span>
+            </div>
           </div>
 
           {["att", "tfiber", "frontier", "other"].map((key) => {
