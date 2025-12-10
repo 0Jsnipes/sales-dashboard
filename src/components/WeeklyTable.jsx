@@ -76,23 +76,34 @@ export default function WeeklyTable({
       async (s) => {
         if (cancelled) return;
 
-        let current = s.docs.map((d) => ensureRowShape({ id: d.id, ...d.data() }));
-        if (teamFilter !== "All") {
-          current = current.filter((r) => (r.team || "") === teamFilter);
-        }
-        if (managerFilter !== "All") {
-          current = current.filter((r) => (r.manager || "") === managerFilter);
-        }
-        const deletedKeys = new Set(
-          current.filter((r) => r.deleted).map((r) => keyForRow(r)).filter(Boolean)
+        const normalizeFilter = (v) => (v ?? "").trim();
+        const teamFilterNorm = normalizeFilter(teamFilter);
+        const managerFilterNorm = normalizeFilter(managerFilter);
+        const matchesFilters = (rep) =>
+          (teamFilterNorm === "" ||
+            teamFilterNorm === "All" ||
+            normalizeFilter(rep.team) === teamFilterNorm) &&
+          (managerFilterNorm === "" ||
+            managerFilterNorm === "All" ||
+            normalizeFilter(rep.manager) === managerFilterNorm);
+
+        const allRows = s.docs.map((d) =>
+          ensureRowShape({ id: d.id, ...d.data() })
         );
-        current = current.filter((r) => !r.deleted);
+
+        const current = allRows.filter((r) => !r.deleted && matchesFilters(r));
+        const deletedKeys = new Set(
+          allRows
+            .filter((r) => r.deleted)
+            .map((r) => keyForRow(r))
+            .filter(Boolean)
+        );
 
         // Backfill missing reps from previous week directly into Firestore so rows are real docs
         const prevISO = prevWeekISO(weekISO);
         const prevSnap = await getDocs(collection(db, base, prevISO, "reps"));
         const existingKeys = new Set([
-          ...current.map((r) => keyForRow(r)).filter(Boolean),
+          ...allRows.map((r) => keyForRow(r)).filter(Boolean),
           ...deletedKeys,
         ]);
 
@@ -132,7 +143,7 @@ export default function WeeklyTable({
         const mergedMap = new Map();
         const addRow = (row) => {
           const k = keyForRow(row);
-          if (!k) return;
+          if (!k || !matchesFilters(row) || row.deleted) return;
           mergedMap.set(k, row);
         };
         current.forEach(addRow);
