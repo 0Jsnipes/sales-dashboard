@@ -100,7 +100,12 @@ export default function WeeklyTable({
         prevSnap.forEach((d) => {
           const data = ensureRowShape({ id: d.id, ...d.data() });
           const key = keyForRow(data);
-          if (!key || existingKeys.has(key)) return;
+          if (!key) return;
+          if (data.deleted) {
+            existingKeys.add(key);
+            return;
+          }
+          if (existingKeys.has(key)) return;
 
           existingKeys.add(key);
           const payload = {
