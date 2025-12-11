@@ -178,10 +178,13 @@ const normalizeProgram = (program) => {
   return "other";
 };
 
+const SHOW_EMAIL_COLUMN = false; // Toggle back to true to restore the email/send column
+
 export default function OnboardingPage() {
   const [roster, setRoster] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState(emailTemplates[0].key);
+  const [taskModalRep, setTaskModalRep] = useState(null);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "roster"), (snap) => {
@@ -210,7 +213,10 @@ export default function OnboardingPage() {
         programKey: key,
         tasks,
         checks,
+        notes: onboarding.notes || "",
         progress: tasks.length ? Math.round((completed / tasks.length) * 100) : 0,
+        totalTasks: tasks.length,
+        completedTasks: completed,
       });
     });
     return buckets;
@@ -220,15 +226,29 @@ export default function OnboardingPage() {
     const current = rep.checks[task];
     const next = !current;
     const tasks = rep.tasks;
-    const done = tasks.every((t) => (t === task ? next : rep.checks[t]));
+      const done = tasks.every((t) => (t === task ? next : rep.checks[t]));
+      try {
+        await updateDoc(doc(db, "roster", rep.id), {
+          [`onboarding.checks.${task}`]: next,
+          "onboarding.onboarded": done ? true : false,
+        });
+      } catch (err) {
+        console.error("Failed to update onboarding check", err);
+        alert("Failed to update onboarding. Check console for details.");
+      }
+    };
+
+  const handleEditNotes = async (rep) => {
+    const current = rep.notes || "";
+    const next = window.prompt("Add or update notes for this rep:", current);
+    if (next === null) return;
     try {
       await updateDoc(doc(db, "roster", rep.id), {
-        [`onboarding.checks.${task}`]: next,
-        "onboarding.onboarded": done ? true : false,
+        "onboarding.notes": next.trim(),
       });
     } catch (err) {
-      console.error("Failed to update onboarding check", err);
-      alert("Failed to update onboarding. Check console for details.");
+      console.error("Failed to save notes", err);
+      alert("Failed to save notes. Check console for details.");
     }
   };
 
@@ -278,8 +298,9 @@ export default function OnboardingPage() {
       const doneCount = completed.length;
       return [
         rep.name || "",
-        rep.salesId || "",
-        rep.email || "",
+        rep.phone || "",
+        rep.location || "",
+        rep.notes || "",
         rep.program || "",
         rep.manager || "",
         `${rep.progress}%`,
@@ -292,8 +313,8 @@ export default function OnboardingPage() {
 
     const header = [
       "Name",
-      "Sales ID",
-      "Email",
+      "Phone Number",
+      "Notes",
       "Program",
       "Manager",
       "Progress",
@@ -392,7 +413,6 @@ export default function OnboardingPage() {
                 : key === "frontier"
                 ? "Frontier"
                 : "Other";
-            const tasks = programTasks[key];
             return (
               <div key={key} className="mb-4 rounded-xl border border-slate-200">
                 <div className="flex items-center justify-between bg-slate-50 px-4 py-2">
@@ -403,14 +423,13 @@ export default function OnboardingPage() {
                   <thead className="bg-slate-100/90 text-slate-700 [&>tr>th]:border-b [&>tr>th]:border-slate-200">
                     <tr>
                       <th className="min-w-[120px] text-center">Name</th>
-                      <th className="min-w-[100px] text-center">Sales ID</th>
+                      <th className="min-w-[120px] text-center">Phone Number</th>
+                      <th className="min-w-[140px] text-center">Location</th>
                       <th className="min-w-[100px] text-center">Progress</th>
-                      <th className="min-w-[140px] text-center">Email</th>
-                      {tasks.map((t) => (
-                        <th key={t} className="min-w-[110px] text-center">
-                          {labelMap[t]}
-                        </th>
-                      ))}
+                      <th className="min-w-[180px] text-center">Notes</th>
+                      {SHOW_EMAIL_COLUMN && (
+                        <th className="min-w-[140px] text-center">Email</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody
@@ -423,58 +442,79 @@ export default function OnboardingPage() {
                     {reps.map((rep) => (
                       <tr key={rep.id}>
                         <td className="text-center font-medium">{rep.name}</td>
-                        <td className="text-center text-sm">{rep.salesId}</td>
+                        <td className="text-center text-sm">{rep.phone || ""}</td>
+                        <td className="text-center text-sm">{rep.location || ""}</td>
                         <td className="text-center">
-                          <div className="mx-auto h-2 w-24 overflow-hidden rounded-full bg-slate-200">
-                            <div
-                              className="h-full rounded-full bg-emerald-500 transition-all"
-                              style={{ width: `${rep.progress}%` }}
-                            />
-                          </div>
-                          <div className="mt-1 text-[11px] text-slate-500">
-                            {rep.progress}%
-                          </div>
+                          <button
+                            type="button"
+                            className="w-full"
+                            onClick={() => setTaskModalRep(rep)}
+                            title="Click to update tasks"
+                          >
+                            <div className="mx-auto h-2 w-28 overflow-hidden rounded-full bg-slate-200">
+                              <div
+                                className="h-full rounded-full bg-emerald-500 transition-all"
+                                style={{ width: `${rep.progress}%` }}
+                              />
+                            </div>
+                            <div className="mt-1 text-[11px] text-slate-500">
+                              {rep.completedTasks} / {rep.totalTasks} tasks ({rep.progress}%)
+                            </div>
+                          </button>
                         </td>
                         <td className="text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <select
-                              className="select select-xs select-bordered"
-                              value={selectedTemplate}
-                              onChange={(e) => setSelectedTemplate(e.target.value)}
-                            >
-                              {emailTemplates.map((tpl) => (
-                                <option key={tpl.key} value={tpl.key}>
-                                  {tpl.title}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              className="btn btn-sm rounded-full p-1 bg-sky-300 text-black text-xs hover:bg-sky-600 hover:scale-105 transition"
-                              title={rep.email ? `Send to ${rep.email}` : "No email on file"}
-                              onClick={(e) => {
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            className="mx-auto max-w-xs cursor-pointer rounded-lg border border-dashed border-slate-300 px-2 py-1 text-xs text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                            onClick={() => handleEditNotes(rep)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
                                 e.preventDefault();
-                                const tpl =
-                                  emailTemplates.find((t) => t.key === selectedTemplate) ||
-                                  emailTemplates[0];
-                                const mailto = buildMailto(tpl, rep);
-                                window.location.href = mailto;
-                              }}
-                            >
-                              Send
-                            </button>
+                                handleEditNotes(rep);
+                              }
+                            }}
+                            title={rep.notes || "Click to add notes"}
+                          >
+                            {rep.notes ? (
+                              <span className="block truncate">{rep.notes}</span>
+                            ) : (
+                              <span className="text-slate-400">Add note</span>
+                            )}
                           </div>
                         </td>
-                        {tasks.map((t) => (
-                          <td key={t} className="text-center">
-                            <input
-                              type="checkbox"
-                              className="checkbox checkbox-sm"
-                              checked={!!rep.checks[t]}
-                              onChange={() => handleToggle(rep, t)}
-                            />
+                        {SHOW_EMAIL_COLUMN && (
+                          <td className="text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <select
+                                className="select select-xs select-bordered"
+                                value={selectedTemplate}
+                                onChange={(e) => setSelectedTemplate(e.target.value)}
+                              >
+                                {emailTemplates.map((tpl) => (
+                                  <option key={tpl.key} value={tpl.key}>
+                                    {tpl.title}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                className="btn btn-sm rounded-full p-1 bg-sky-300 text-black text-xs hover:bg-sky-600 hover:scale-105 transition"
+                                title={rep.email ? `Send to ${rep.email}` : "No email on file"}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  const tpl =
+                                    emailTemplates.find((t) => t.key === selectedTemplate) ||
+                                    emailTemplates[0];
+                                  const mailto = buildMailto(tpl, rep);
+                                  window.location.href = mailto;
+                                }}
+                              >
+                                Send
+                              </button>
+                            </div>
                           </td>
-                        ))}
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -484,6 +524,47 @@ export default function OnboardingPage() {
           })}
         </div>
       </div>
+
+      {taskModalRep && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <div className="text-sm font-semibold text-slate-700">
+                  Update Tasks
+                </div>
+                <div className="text-xs text-slate-500">
+                  {taskModalRep.name} • {taskModalRep.program || "Program"} •{" "}
+                  {taskModalRep.location || "Location"}
+                </div>
+              </div>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setTaskModalRep(null)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {taskModalRep.tasks.map((t) => (
+                <label
+                  key={t}
+                  className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                >
+                  <span className="font-medium text-slate-700">{labelMap[t]}</span>
+                  <input
+                    type="checkbox"
+                    className="checkbox checkbox-sm"
+                    checked={!!taskModalRep.checks[t]}
+                    onChange={() => handleToggle(taskModalRep, t)}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
