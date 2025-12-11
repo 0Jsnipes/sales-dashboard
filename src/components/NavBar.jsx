@@ -5,6 +5,7 @@ import clsx from "clsx";
 
 export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLogin }) {
   const [scrolled, setScrolled] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   // Add shadow/border after slight scroll
   useEffect(() => {
@@ -13,6 +14,11 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  // Close mobile menu if admin status changes (e.g., logout)
+  useEffect(() => {
+    if (!isAdmin) setMobileOpen(false);
+  }, [isAdmin]);
 
   if (hidden) {
     return (
@@ -34,7 +40,7 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
       )}
       style={{ willChange: "transform" }}
     >
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-3 sm:px-4">
+      <div className="relative mx-auto flex w-full max-w-6xl items-center justify-between px-3 sm:px-4">
         {/* Left: brand + hide */}
         <div className="flex items-center gap-2 sm:gap-3">
           <button
@@ -81,7 +87,49 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
               Admin Login
             </button>
           )}
+
+          {isAdmin && (
+            <button
+              className="btn btn-ghost btn-sm sm:hidden"
+              onClick={() => setMobileOpen((v) => !v)}
+              aria-expanded={mobileOpen}
+              aria-controls="mobile-nav"
+              type="button"
+            >
+              <span className="sr-only">Toggle menu</span>
+              <span className={clsx("block h-0.5 w-5 bg-slate-800 transition-all", mobileOpen && "translate-y-1.5 rotate-45")} />
+              <span className={clsx("block my-1 h-0.5 w-5 bg-slate-800 transition-opacity", mobileOpen && "opacity-0")} />
+              <span className={clsx("block h-0.5 w-5 bg-slate-800 transition-all", mobileOpen && "-translate-y-1.5 -rotate-45")} />
+            </button>
+          )}
         </div>
+
+        {isAdmin && (
+          <div
+            id="mobile-nav"
+            className={clsx(
+              "absolute left-0 right-0 top-full sm:hidden",
+              "bg-white/95 backdrop-blur border-b border-black/10 shadow-sm",
+              "px-3 pb-3",
+              mobileOpen ? "block" : "hidden"
+            )}
+          >
+            <div className="flex flex-col gap-2 pt-3">
+              <NavButton to="/sales" onClick={() => setMobileOpen(false)}>
+                Sales
+              </NavButton>
+              <NavButton to="/knocks" onClick={() => setMobileOpen(false)}>
+                Knocks
+              </NavButton>
+              <NavButton to="/roster" onClick={() => setMobileOpen(false)}>
+                Roster
+              </NavButton>
+              <NavButton to="/onboarding" onClick={() => setMobileOpen(false)}>
+                Onboarding
+              </NavButton>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -89,7 +137,7 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
 
 /* ---------- helpers ---------- */
 
-function NavButton({ to, children }) {
+function NavButton({ to, children, onClick }) {
   return (
     <NavLink
       to={to}
@@ -100,6 +148,7 @@ function NavButton({ to, children }) {
           isActive && "btn-active bg-transparent border-b-2 border-yellow-200 text-slate-900 font-semibold"
         )
       }
+      onClick={onClick}
       end
     >
       {children}
