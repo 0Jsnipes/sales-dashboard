@@ -8,8 +8,8 @@ import WeekSwitcher from "../components/WeekSwitcher.jsx";
 import TeamFilter from "../components/TeamFilter.jsx";
 
 const clampNum = (v) => (Number.isFinite(+v) && +v >= 0 ? Math.floor(+v) : 0);
-const medalIcon = (rank) =>
-  rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
+const medalIcon = (place) =>
+  place === 1 ? "🥇" : place === 2 ? "🥈" : place === 3 ? "🥉" : null;
 
 export default function LeaderboardPage() {
   const { isAdmin, loading } = useAuthRole();
@@ -55,14 +55,17 @@ export default function LeaderboardPage() {
     return () => unsub && unsub();
   }, [weekISO, location, manager]);
 
-  const ranked = useMemo(
-    () =>
-      leaders.map((l, idx) => ({
-        ...l,
-        rank: idx + 1,
-      })),
-    [leaders]
-  );
+  const ranked = useMemo(() => {
+    let lastScore = null;
+    let place = 0;
+    return leaders.map((l) => {
+      if (l.weeklyTotal !== lastScore) {
+        place += 1; // dense ranking: next distinct score increments by 1
+        lastScore = l.weeklyTotal;
+      }
+      return { ...l, place };
+    });
+  }, [leaders]);
 
   const starsForPct = (pct) => {
     const stars = Math.round((pct / 100) * 5);
@@ -135,7 +138,7 @@ export default function LeaderboardPage() {
               >
                 <div className="flex items-center gap-3 min-w-[120px]">
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-800 text-[#d4e157] text-lg font-bold border border-[#d4e157]/60">
-                    {medalIcon(rep.rank) || rep.rank}
+                    {medalIcon(rep.place) || rep.place}
                   </div>
                   <div>
                     <div className="text-sm font-semibold text-white">{rep.name}</div>
