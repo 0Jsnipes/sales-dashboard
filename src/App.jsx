@@ -9,6 +9,7 @@ import SalesPage from "./pages/SalesPage.jsx";
 import KnocksPage from "./pages/KnocksPage.jsx";
 import RosterPage from "./pages/RosterPage";
 import OnboardingPage from "./pages/Onboarding";
+import LeaderboardPage from "./pages/LeaderboardPage.jsx";
 export default function App() {
   const { isAdmin, loading } = useAuthRole();
   const [navHidden, setNavHidden] = useState(false);
@@ -29,6 +30,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/sales" replace />} />
           <Route path="/sales" element={<SalesPage />} />
+          <Route path="/leaderboard" element={<LeaderboardPage />} />
           <Route path="/knocks" element={<KnocksPage />} />
           <Route path="/roster" element={<RosterPage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />

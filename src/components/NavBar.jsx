@@ -64,6 +64,7 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
           {isAdmin ? (
             <>
               <NavButton to="/sales">Sales</NavButton>
+              <NavButton to="/leaderboard">Leaderboard</NavButton>
               <NavButton to="/knocks">Knocks</NavButton>
               <NavButton to="/roster">Roster</NavButton>
               <NavButton to="/onboarding">Onboarding</NavButton>
@@ -117,6 +118,9 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
             <div className="flex flex-col gap-2 pt-3">
               <NavButton to="/sales" onClick={() => setMobileOpen(false)}>
                 Sales
+              </NavButton>
+              <NavButton to="/leaderboard" onClick={() => setMobileOpen(false)}>
+                Leaderboard
               </NavButton>
               <NavButton to="/knocks" onClick={() => setMobileOpen(false)}>
                 Knocks
