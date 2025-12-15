@@ -10,6 +10,13 @@ import TeamFilter from "../components/TeamFilter.jsx";
 const clampNum = (v) => (Number.isFinite(+v) && +v >= 0 ? Math.floor(+v) : 0);
 const medalIcon = (place) =>
   place === 1 ? "🥇" : place === 2 ? "🥈" : place === 3 ? "🥉" : null;
+const keyForRep = (rep) => {
+  const sid = (rep.salesId || rep.sid || "").trim().toLowerCase();
+  if (sid) return `sid:${sid}`;
+  const name = (rep.name || "").trim().toLowerCase();
+  if (name) return `name:${name}`;
+  return null;
+};
 
 export default function LeaderboardPage() {
   const { isAdmin, loading } = useAuthRole();
@@ -26,24 +33,41 @@ export default function LeaderboardPage() {
       const normalize = (v) => (v ?? "").trim();
       const locFilter = normalize(location);
       const mgrFilter = normalize(manager);
-      const list = snap.docs
+      const rows = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
         .filter((row) => {
+          if (row.deleted) return false;
           if (locFilter && locFilter !== "All" && normalize(row.team) !== locFilter) return false;
           if (mgrFilter && mgrFilter !== "All" && normalize(row.manager) !== mgrFilter) return false;
-          return !row.deleted;
+          return true;
         })
         .map((row) => {
-          const salesArr = Array.isArray(row.sales) ? row.sales : Array(7).fill(0);
-          const weeklyTotal = salesArr.reduce((sum, v) => sum + clampNum(v), 0);
+          const sales = Array.isArray(row.sales) && row.sales.length === 7 ? row.sales : Array(7).fill(0);
+          const weeklyTotal = sales.reduce((sum, v) => sum + clampNum(v), 0);
+          return { ...row, sales, weeklyTotal };
+        });
+
+      // Deduplicate by salesId/name (same logic as WeeklyTable): keep the row with the higher weekly total
+      const dedup = new Map();
+      rows.forEach((row) => {
+        const key = keyForRep(row);
+        if (!key) return;
+        const existing = dedup.get(key);
+        if (!existing || row.weeklyTotal > existing.weeklyTotal) {
+          dedup.set(key, row);
+        }
+      });
+
+      const list = Array.from(dedup.values())
+        .map((row) => {
           const goal = clampNum(row.salesGoal);
-          const pct = goal > 0 ? Math.min(100, Math.round((weeklyTotal / goal) * 100)) : 0;
+          const pct = goal > 0 ? Math.min(100, Math.round((row.weeklyTotal / goal) * 100)) : 0;
           return {
             id: row.id,
             name: row.name || "Unnamed",
             manager: row.manager || "",
             team: row.team || "",
-            weeklyTotal,
+            weeklyTotal: row.weeklyTotal,
             goal,
             pct,
           };

@@ -141,15 +141,20 @@ export default function WeeklyTable({
 
         // Combine current docs with any just-created placeholders for immediate UI display
         const mergedMap = new Map();
+        const rowScore = (row) => {
+          const arr = row[metricKey] || Array(7).fill(0);
+          return arr.reduce((s, v) => s + clampNum(v), 0);
+        };
         const addRow = (row) => {
           const k = keyForRow(row);
           if (!k || !matchesFilters(row) || row.deleted) return;
-          mergedMap.set(k, row);
+          const existing = mergedMap.get(k);
+          if (!existing || rowScore(row) > rowScore(existing)) {
+            mergedMap.set(k, row);
+          }
         };
         current.forEach(addRow);
-        missingWrites.forEach(({ id, payload }) =>
-          addRow({ id, ...payload })
-        );
+        missingWrites.forEach(({ id, payload }) => addRow({ id, ...payload }));
 
         const merged = Array.from(mergedMap.values()).sort((a, b) =>
           (a.name || "").localeCompare(b.name || "", undefined, {
@@ -178,6 +183,16 @@ export default function WeeklyTable({
     });
     return { dayTotals, weekTotal };
   }, [rows, metricKey]);
+
+  // Log per-day totals for the current week when data changes
+  useEffect(() => {
+    if (!weekISO) return;
+    const perRep = rows.map((r) => ({
+      rep: r.name || r.id,
+      days: (r[metricKey] || Array(7).fill(0)).map((v) => clampNum(v)),
+    }));
+    console.log(`[WeeklyTable] ${metricKey} per-day totals for week ${weekISO}:`, perRep);
+  }, [rows, weekISO, metricKey]);
 
   // Saves
   const saveCell = async (rep, dayIdx, value) => {
@@ -406,6 +421,7 @@ export default function WeeklyTable({
                     >
                       {isAdmin ? (
                         <input
+                          key={`${r.id}-${weekISO}-${i}-${arr[i] ?? 0}`}
                           type="number"
                           min="0"
                           defaultValue={arr[i] ?? ""}
@@ -433,6 +449,7 @@ export default function WeeklyTable({
                   <td className={`text-center ${!isAdmin ? "px-5" : ""}`}>
                     {isAdmin ? (
                       <input
+                        key={`${r.id}-${weekISO}-goal-${goal ?? 0}`}
                         type="number"
                         min="0"
                         defaultValue={goal ?? ""}
