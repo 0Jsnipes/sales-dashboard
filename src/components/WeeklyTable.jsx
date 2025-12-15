@@ -420,17 +420,17 @@ export default function WeeklyTable({
                       className={`text-center ${!isAdmin ? "px-5" : ""}`}
                     >
                       {isAdmin ? (
-                        <input
-                          key={`${r.id}-${weekISO}-${i}-${arr[i] ?? 0}`}
-                          type="number"
-                          min="0"
-                          defaultValue={arr[i] ?? ""}
-                          className="input input-bordered input-xs w-16 text-center"
-                          data-type="day"
-                          data-rep={r.id}
-                          data-day={i}
-                          onBlur={(e) => saveCell(r, i, e.target.value)}
-                          onKeyDown={handleKeyNav}
+                      <input
+                        key={`${r.id}-${weekISO}-${i}-${arr[i] ?? 0}`}
+                        type="number"
+                        min="0"
+                        defaultValue={arr[i] ?? ""}
+                        className="input input-bordered input-xs w-16 text-center"
+                        data-type="day"
+                        data-rep={r.id}
+                        data-day={i}
+                        onBlur={(e) => saveCell(r, i, e.target.value)}
+                        onKeyDown={handleKeyNav}
                         />
                       ) : (
                         <span>{arr[i] ?? ""}</span>
