@@ -15,6 +15,15 @@ import { db } from "../lib/firebase";
 const AB_PRIMARY = "#101010";
 const AB_LIME = "#D4E157";
 
+const clampNum = (v) => (Number.isFinite(+v) && +v >= 0 ? Math.floor(+v) : 0);
+const keyForRep = (rep) => {
+  const sid = (rep.salesId || rep.sid || "").trim().toLowerCase();
+  if (sid) return `sid:${sid}`;
+  const name = (rep.name || "").trim().toLowerCase();
+  if (name) return `name:${name}`;
+  return null;
+};
+
 /**
  * Props:
  *  - base:       "weeks"
@@ -35,17 +44,48 @@ export default function WeeklyChart({
   useEffect(() => {
     const q = query(collection(db, base, weekISO, "reps"));
     return onSnapshot(q, (s) => {
-      const data = s.docs
-        .map((d) => {
-          const v = d.data();
-          if (v.deleted) return null;
-          if (teamFilter !== "All" && (v.team || "") !== teamFilter) return null;
-          const arr = v[metricKey] || [];
-          const total = arr.reduce((a, b) => a + (Number(b) || 0), 0);
-          return { id: d.id, name: v.name, total };
+      const normalize = (v) => (v ?? "").trim();
+      const teamFilterNorm = normalize(teamFilter);
+      const rows = s.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((v) => {
+          if (v.deleted) return false;
+          if (
+            teamFilterNorm &&
+            teamFilterNorm !== "All" &&
+            normalize(v.team) !== teamFilterNorm
+          )
+            return false;
+          return true;
         })
-        .filter(Boolean)
+        .map((v) => {
+          const arr =
+            Array.isArray(v[metricKey]) && v[metricKey].length === 7
+              ? v[metricKey]
+              : Array(7).fill(0);
+          const total = arr.reduce((a, b) => a + clampNum(b), 0);
+          return { ...v, total };
+        });
+
+      // Deduplicate by salesId/name, keeping the entry with the higher total
+      const dedup = new Map();
+      rows.forEach((row) => {
+        const k = keyForRep(row);
+        if (!k) return;
+        const existing = dedup.get(k);
+        if (!existing || row.total > existing.total) {
+          dedup.set(k, row);
+        }
+      });
+
+      const data = Array.from(dedup.values())
+        .map((v) => ({
+          id: v.id,
+          name: v.name || "Unnamed",
+          total: v.total,
+        }))
         .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })); // alphabetical
+
       setRows(data);
     });
   }, [base, weekISO, metricKey, teamFilter]);
