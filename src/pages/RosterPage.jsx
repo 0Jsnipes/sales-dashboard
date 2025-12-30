@@ -44,6 +44,7 @@ export default function RosterPage() {
   const [terminated, setTerminated] = useState([]);
   const [showTerminated, setShowTerminated] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const [editDraft, setEditDraft] = useState({
     name: "",
     salesId: "",
@@ -108,12 +109,8 @@ export default function RosterPage() {
     const unsub = onSnapshot(collection(db, "roster"), (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-      // sort: location (alpha), then name (alpha)
+      // sort: name (alpha)
       list.sort((a, b) => {
-        const locA = (a.location || "").toLowerCase();
-        const locB = (b.location || "").toLowerCase();
-        if (locA < locB) return -1;
-        if (locA > locB) return 1;
         const nameA = (a.name || "").toLowerCase();
         const nameB = (b.name || "").toLowerCase();
         if (nameA < nameB) return -1;
@@ -126,6 +123,15 @@ export default function RosterPage() {
 
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const active = new Set(reps.map((r) => r.id));
+      const next = new Set([...prev].filter((id) => active.has(id)));
+      return next;
+    });
+  }, [reps]);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "rosterOptions"), (snap) => {
@@ -159,9 +165,11 @@ export default function RosterPage() {
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
         .sort((a, b) => {
-          const aDate = a.deletedAt?.toMillis?.() || 0;
-          const bDate = b.deletedAt?.toMillis?.() || 0;
-          return bDate - aDate;
+          const nameA = (a.name || "").toLowerCase();
+          const nameB = (b.name || "").toLowerCase();
+          if (nameA < nameB) return -1;
+          if (nameA > nameB) return 1;
+          return 0;
         });
       setTerminated(list);
     });
@@ -219,6 +227,34 @@ export default function RosterPage() {
     return reps.filter((r) => (r.manager || "") === managerFilter);
   }, [reps, managerFilter]);
 
+  const allVisibleSelected =
+    visibleReps.length > 0 &&
+    visibleReps.every((r) => selectedIds.has(r.id));
+
+  const toggleSelectAllVisible = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        visibleReps.forEach((r) => next.delete(r.id));
+      } else {
+        visibleReps.forEach((r) => next.add(r.id));
+      }
+      return next;
+    });
+  };
+
+  const toggleSelected = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
   const resetForm = () => {
     setName("");
     setSalesId("");
@@ -230,6 +266,38 @@ export default function RosterPage() {
     setSocial("");
   };
 
+  const pickRepFields = (rep) => ({
+    name: rep?.name || "",
+    salesId: rep?.salesId || "",
+    manager: rep?.manager || "",
+    location: rep?.location || "",
+    program: rep?.program || "",
+    email: rep?.email || "",
+    phone: rep?.phone || "",
+    social: rep?.social || "",
+    referredBy: rep?.referredBy || "",
+  });
+
+  const logAudit = async ({ action, entity, entityId, before, after, meta }) => {
+    try {
+      await addDoc(collection(db, "auditLogs"), {
+        action,
+        entity,
+        entityId: entityId || null,
+        before: before || null,
+        after: after || null,
+        meta: meta || null,
+        actor: {
+          uid: user?.uid || null,
+          email: user?.email || null,
+        },
+        createdAt: serverTimestamp(),
+      });
+    } catch (err) {
+      console.error("Failed to write audit log", err);
+    }
+  };
+
   const handleAddOption = async (type, directValue) => {
     const value = (directValue ?? optionInputs[type])?.trim();
     if (!value) return;
@@ -239,11 +307,17 @@ export default function RosterPage() {
     if (exists) return;
 
     try {
-      await addDoc(collection(db, "rosterOptions"), {
+      const docRef = await addDoc(collection(db, "rosterOptions"), {
         type,
         value,
         createdAt: serverTimestamp(),
         createdBy: user?.uid || null,
+      });
+      await logAudit({
+        action: "create",
+        entity: "rosterOption",
+        entityId: docRef.id,
+        after: { type, value },
       });
       setOptionInputs((prev) => ({ ...prev, [type]: "" }));
     } catch (err) {
@@ -252,10 +326,19 @@ export default function RosterPage() {
     }
   };
 
-  const handleDeleteOption = async (id) => {
+  const handleDeleteOption = async (id, type) => {
     if (!window.confirm("Remove this option?")) return;
+    const option = type
+      ? options[type].find((opt) => opt.id === id)
+      : null;
     try {
       await deleteDoc(doc(db, "rosterOptions", id));
+      await logAudit({
+        action: "delete",
+        entity: "rosterOption",
+        entityId: id,
+        before: option ? { type, value: option.value } : null,
+      });
     } catch (err) {
       console.error("Failed to delete option", err);
       alert("Failed to delete option. Check console for details.");
@@ -276,7 +359,7 @@ export default function RosterPage() {
 
     setSaving(true);
     try {
-      await addDoc(collection(db, "roster"), {
+      const payload = {
         name: name.trim(),
         salesId: salesId.trim(),
         manager: manager.trim(),
@@ -288,6 +371,13 @@ export default function RosterPage() {
         createdAt: serverTimestamp(),
         createdBy: user?.uid || null,
         onboarding: onboardingPayload,
+      };
+      const docRef = await addDoc(collection(db, "roster"), payload);
+      await logAudit({
+        action: "create",
+        entity: "roster",
+        entityId: docRef.id,
+        after: payload,
       });
       resetForm();
     } catch (err) {
@@ -298,29 +388,55 @@ export default function RosterPage() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Remove this rep from the roster?")) return;
+  const deleteRep = async (id) => {
     try {
       const target = reps.find((r) => r.id === id);
+      const before = target ? pickRepFields(target) : null;
       if (target) {
         await addDoc(collection(db, "rosterTerminated"), {
-          name: target.name || "",
-          salesId: target.salesId || "",
-          manager: target.manager || "",
-          location: target.location || "",
-          program: target.program || "",
-          email: target.email || "",
-          phone: target.phone || "",
-          social: target.social || "",
-          referredBy: target.referredBy || "",
+          ...before,
           deletedAt: serverTimestamp(),
           deletedBy: user?.uid || null,
         });
       }
       await deleteDoc(doc(db, "roster", id));
+      await logAudit({
+        action: "delete",
+        entity: "roster",
+        entityId: id,
+        before,
+        meta: target ? { movedTo: "rosterTerminated" } : null,
+      });
     } catch (err) {
       console.error("Failed to delete rep from roster", err);
       alert("Failed to delete rep. Check console for details.");
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Remove this rep from the roster?")) return;
+    setSaving(true);
+    try {
+      await deleteRep(id);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
+    const count = ids.length;
+    const confirmMsg = `Remove ${count} rep${count === 1 ? "" : "s"} from the roster?`;
+    if (!window.confirm(confirmMsg)) return;
+    setSaving(true);
+    try {
+      for (const id of ids) {
+        await deleteRep(id);
+      }
+      setSelectedIds(new Set());
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -357,6 +473,8 @@ export default function RosterPage() {
 
   const handleSaveEdit = async () => {
     if (!editingId) return;
+    const previous = reps.find((r) => r.id === editingId);
+    const before = pickRepFields(previous);
     const payload = {
       name: editDraft.name.trim(),
       salesId: editDraft.salesId.trim(),
@@ -372,6 +490,13 @@ export default function RosterPage() {
     setSavingEdit(true);
     try {
       await updateDoc(doc(db, "roster", editingId), payload);
+      await logAudit({
+        action: "update",
+        entity: "roster",
+        entityId: editingId,
+        before,
+        after: payload,
+      });
       handleCancelEdit();
     } catch (err) {
       console.error("Failed to update rep", err);
@@ -386,18 +511,18 @@ export default function RosterPage() {
     if (!target) return;
     setSaving(true);
     try {
-      await addDoc(collection(db, "roster"), {
-        name: target.name || "",
-        salesId: target.salesId || "",
-        manager: target.manager || "",
-        location: target.location || "",
-        program: target.program || "",
-        email: target.email || "",
-        phone: target.phone || "",
-        social: target.social || "",
-        referredBy: target.referredBy || "",
+      const payload = {
+        ...pickRepFields(target),
         createdAt: serverTimestamp(),
         createdBy: user?.uid || null,
+      };
+      const docRef = await addDoc(collection(db, "roster"), payload);
+      await logAudit({
+        action: "restore",
+        entity: "roster",
+        entityId: docRef.id,
+        before: pickRepFields(target),
+        after: payload,
       });
       await deleteDoc(doc(db, "rosterTerminated", id));
     } catch (err) {
@@ -439,7 +564,7 @@ export default function RosterPage() {
           checks: defaultChecksForProgram(programVal),
         };
 
-        await addDoc(collection(db, "roster"), {
+        const payload = {
           name: nameVal,
           salesId: salesIdVal,
           manager: managerVal,
@@ -451,6 +576,14 @@ export default function RosterPage() {
           createdAt: serverTimestamp(),
           createdBy: user?.uid || null,
           onboarding: onboardingPayload,
+        };
+        const docRef = await addDoc(collection(db, "roster"), payload);
+        await logAudit({
+          action: "create",
+          entity: "roster",
+          entityId: docRef.id,
+          after: payload,
+          meta: { source: "bulkImport" },
         });
       }
       alert("Bulk import completed.");
@@ -473,6 +606,187 @@ export default function RosterPage() {
       hour: "2-digit",
       minute: "2-digit",
     });
+  };
+
+  const parseLocalISODate = (value) => {
+    if (!value) return null;
+    if (value?.toDate) return value.toDate();
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (isoMatch) {
+        const [, y, m, d] = isoMatch;
+        return new Date(Number(y), Number(m) - 1, Number(d));
+      }
+      const parsed = new Date(trimmed);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    return null;
+  };
+
+  const formatDate = (dateObj) => {
+    if (!dateObj) return "N/A";
+    return dateObj.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  const addDays = (dateObj, days) => {
+    const next = new Date(dateObj);
+    next.setDate(next.getDate() + days);
+    return next;
+  };
+
+  const nextWednesday = (dateObj) => {
+    const next = new Date(dateObj);
+    const dow = next.getDay(); // 0=Sun..6=Sat
+    const delta = (3 - dow + 7) % 7 || 7;
+    next.setDate(next.getDate() + delta);
+    return next;
+  };
+
+  const getFirstName = (fullName) => {
+    const trimmed = (fullName || "").trim();
+    if (!trimmed) return "";
+    return trimmed.split(/\s+/)[0] || "";
+  };
+
+  const findLastSaleDateForRep = async (rep) => {
+    const targetName = (rep?.name || "").trim().toLowerCase();
+    if (!targetName) return null;
+
+    const snap = await getDocs(collectionGroup(db, "reps"));
+    let latest = null;
+
+    snap.forEach((d) => {
+      const path = d.ref.path || "";
+      const data = d.data() || {};
+      const name = (data.name || "").trim().toLowerCase();
+      if (!name || name !== targetName) return;
+
+      if (path.startsWith("days/")) {
+        const parts = path.split("/");
+        const dayId = parts[1];
+        if (!dayId) return;
+        const salesVal = Number(data.sales);
+        if (!Number.isFinite(salesVal) || salesVal <= 0) return;
+        const dateObj = parseLocalISODate(dayId);
+        if (!dateObj) return;
+        if (!latest || dateObj > latest) latest = dateObj;
+        return;
+      }
+
+      if (path.startsWith("weeks/")) {
+        const parts = path.split("/");
+        const weekId = parts[1];
+        const weekStart = parseLocalISODate(weekId);
+        if (!weekStart) return;
+        const salesArr = Array.isArray(data.sales) ? data.sales : [];
+        for (let i = salesArr.length - 1; i >= 0; i -= 1) {
+          const val = Number(salesArr[i]);
+          if (!Number.isFinite(val) || val <= 0) continue;
+          const dateObj = addDays(weekStart, i);
+          if (!latest || dateObj > latest) latest = dateObj;
+          break;
+        }
+      }
+    });
+
+    return latest;
+  };
+
+  const buildTerminationEmail = (rep, lastSaleOverride) => {
+    const agentName = (rep?.name || "").trim() || "the agent";
+    const firstName = getFirstName(agentName) || agentName;
+    const terminationDate = rep?.deletedAt?.toDate?.()
+      ? formatDate(rep.deletedAt.toDate())
+      : "N/A";
+    const lastSaleRaw = rep?.lastSaleDate || rep?.lastSale || "";
+    const lastSaleDateObj = lastSaleOverride || parseLocalISODate(lastSaleRaw);
+    const lastSaleDisplay = lastSaleDateObj
+      ? formatDate(lastSaleDateObj)
+      : (typeof lastSaleRaw === "string" && lastSaleRaw.trim()
+        ? lastSaleRaw.trim()
+        : "N/A");
+    const processingDateObj = lastSaleDateObj
+      ? addDays(lastSaleDateObj, 90)
+      : null;
+    const processingDateDisplay = processingDateObj
+      ? formatDate(processingDateObj)
+      : "N/A";
+    const fundingDateObj = processingDateObj
+      ? nextWednesday(processingDateObj)
+      : null;
+    const fundingDateDisplay = fundingDateObj ? formatDate(fundingDateObj) : "N/A";
+
+    const subject = `Notification of Official Contract Termination - ${agentName}`;
+    const bodyLines = [
+      "Hello,",
+      "",
+      `This email is to make official the separation between ${agentName} and AB Marketing LLC effective ${terminationDate}.`,
+    ];
+
+    if (lastSaleDateObj) {
+      bodyLines.push(
+        "Please make turning in any property of AB Marketing a priority.",
+        "As stated, and signed in the contract when onboarding, your remaining commission checks will be held until the end of the stated chargeback period (90 days after last sales date).",
+        `${firstName}'s last sale date was ${lastSaleDisplay}.`,
+        `The final commission checks will be available to be processed on ${processingDateDisplay}.`,
+        `After deducting any chargebacks that may come through during that time, the payroll will be available to be funded on ${fundingDateDisplay}.`,
+        `Please reach out to Kristin Patterson (kristin@abenergymarketing.com) prior to ${fundingDateDisplay} to request your exit hold be released.`
+      );
+    }
+
+    bodyLines.push(
+      "",
+      "AB Marketing appreciates the work put forth, and we wish you the best in future endeavors.",
+      "",
+      "Kindly,"
+    );
+
+    const body = bodyLines.join("\n");
+
+    return { subject, body };
+  };
+
+  const handleSendTerminationEmail = (rep) => {
+    const to = (rep?.email || "").trim();
+    if (!to) {
+      alert("No email address is on file for this rep.");
+      return;
+    }
+    (async () => {
+      let lastSaleDateObj = null;
+      try {
+        lastSaleDateObj = await findLastSaleDateForRep(rep);
+      } catch (err) {
+        console.error("Failed to load last sale date", err);
+      }
+      const { subject, body } = buildTerminationEmail(rep, lastSaleDateObj);
+      const cc = [
+        "alex@abenergymarketing.com",
+        "cj@abenergymarketing.com",
+        "kristin@abenergymarketing.com",
+        "j.sexton@abenergymarketing.com",
+      ].join(",");
+      const mailto = `mailto:${to}?cc=${encodeURIComponent(
+        cc
+      )}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      if (rep?.id) {
+        try {
+          await updateDoc(doc(db, "rosterTerminated", rep.id), {
+            terminationEmailSentAt: serverTimestamp(),
+            terminationEmailSentBy: user?.uid || null,
+          });
+        } catch (err) {
+          console.error("Failed to mark termination email sent", err);
+        }
+      }
+      window.location.href = mailto;
+    })();
   };
 
   const tierColors = ["bg-emerald-500", "bg-sky-500", "bg-purple-500", "bg-amber-500", "bg-pink-500"];
@@ -508,6 +822,7 @@ export default function RosterPage() {
               onClick={() => {
                 handleCancelEdit();
                 setDetailOpen(null);
+                setSelectedIds(new Set());
                 setShowTerminated((v) => !v);
               }}
             >
@@ -547,6 +862,16 @@ export default function RosterPage() {
           <span className="text-xs opacity-70">
             Showing {visibleReps.length} of {reps.length} reps
           </span>
+          {isAdmin && !showTerminated && (
+            <button
+              type="button"
+              className="btn btn-error btn-sm"
+              onClick={handleBulkDelete}
+              disabled={selectedIds.size === 0 || saving}
+            >
+              Delete Selected {selectedIds.size > 0 ? `(${selectedIds.size})` : ""}
+            </button>
+          )}
         </div>
       </div>
 
@@ -581,7 +906,7 @@ export default function RosterPage() {
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
             />
-                        <input
+            <input
               className="input input-sm input-bordered w-full"
               placeholder="Social"
               value={social}
@@ -720,7 +1045,7 @@ export default function RosterPage() {
                           <span className="truncate">{opt.value}</span>
                           <button
                             className="btn btn-ghost btn-xs text-error"
-                            onClick={() => handleDeleteOption(opt.id)}
+                            onClick={() => handleDeleteOption(opt.id, type)}
                             type="button"
                           >
                             ✕
@@ -752,6 +1077,17 @@ export default function RosterPage() {
               }`}
             >
               <tr>
+                {isAdmin && !showTerminated && (
+                  <th className="w-[44px] text-center">
+                    <input
+                      type="checkbox"
+                      className="checkbox checkbox-xs"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAllVisible}
+                      aria-label="Select all visible reps"
+                    />
+                  </th>
+                )}
                 <th className="min-w-[160px] text-center">Name</th>
                 <th className="min-w-[140px] text-center">Manager</th>
                 <th className="min-w-[140px] text-center">Location</th>
@@ -772,8 +1108,23 @@ export default function RosterPage() {
               {(showTerminated ? terminated : visibleReps).map((r) => {
                 const isEditing = !showTerminated && editingId === r.id;
                 const progress = getRefProgress(r);
+                const isEmailed = showTerminated && !!r.terminationEmailSentAt;
                 return (
-                  <tr key={r.id}>
+                  <tr
+                    key={r.id}
+                    style={isEmailed ? { backgroundColor: "#fee2e2" } : undefined}
+                  >
+                    {isAdmin && !showTerminated && (
+                      <td className="text-center">
+                        <input
+                          type="checkbox"
+                          className="checkbox checkbox-xs"
+                          checked={selectedIds.has(r.id)}
+                          onChange={() => toggleSelected(r.id)}
+                          aria-label={`Select ${r.name || "rep"}`}
+                        />
+                      </td>
+                    )}
                     <td className="font-medium text-center">
                       {isEditing ? (
                         <div className="space-y-2">
@@ -970,13 +1321,35 @@ export default function RosterPage() {
                     {isAdmin && (
                       <td className="text-right">
                         {showTerminated ? (
-                          <button
-                            className="btn btn-ghost btn-xs text-success"
-                            onClick={() => handleRestore(r.id)}
-                            disabled={saving}
-                          >
-                            Restore
-                          </button>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              className="btn btn-outline btn-xs btn-square"
+                              type="button"
+                              onClick={() => handleSendTerminationEmail(r)}
+                              disabled={!r.email}
+                              aria-label="Compose termination email"
+                              title={r.email ? "Compose termination email" : "No email on file"}
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                className="h-4 w-4"
+                              >
+                                <path d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z" />
+                                <path d="m22 8-10 6L2 8" />
+                              </svg>
+                            </button>
+                            <button
+                              className="btn btn-success btn-xs"
+                              onClick={() => handleRestore(r.id)}
+                              disabled={saving}
+                            >
+                              Restore
+                            </button>
+                          </div>
                         ) : isEditing ? (
                           <div className="flex justify-end gap-2">
                             <button
@@ -1024,7 +1397,7 @@ export default function RosterPage() {
               {(showTerminated ? terminated : visibleReps).length === 0 && (
                 <tr>
                   <td
-                    colSpan={isAdmin ? 6 : 5}
+                    colSpan={isAdmin ? (showTerminated ? 6 : 7) : 5}
                     className="py-6 text-center text-sm text-slate-500"
                   >
                     {showTerminated

@@ -64,7 +64,8 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
           {isAdmin ? (
             <>
               <NavButton to="/sales">Sales</NavButton>
-              <NavButton to="/leaderboard">Leaderboard</NavButton>
+              <NavButton to="/performance">Performance</NavButton>
+              {/*<NavButton to="/leaderboard">Leaderboard</NavButton> removed til further notice just do not need right now*/}
               <NavButton to="/knocks">Knocks</NavButton>
               <NavButton to="/roster">Roster</NavButton>
               <NavButton to="/onboarding">Onboarding</NavButton>
@@ -72,6 +73,7 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
           ) : (
             <>
               <DisabledButton>Sales</DisabledButton>
+              <DisabledButton>Performance</DisabledButton>
               <DisabledButton>Knocks</DisabledButton>
             </>
           )}
@@ -98,9 +100,24 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
               type="button"
             >
               <span className="sr-only">Toggle menu</span>
-              <span className={clsx("block h-0.5 w-5 bg-slate-800 transition-all", mobileOpen && "translate-y-1.5 rotate-45")} />
-              <span className={clsx("block my-1 h-0.5 w-5 bg-slate-800 transition-opacity", mobileOpen && "opacity-0")} />
-              <span className={clsx("block h-0.5 w-5 bg-slate-800 transition-all", mobileOpen && "-translate-y-1.5 -rotate-45")} />
+              <span
+                className={clsx(
+                  "block h-0.5 w-5 bg-slate-800 transition-all",
+                  mobileOpen && "translate-y-1.5 rotate-45"
+                )}
+              />
+              <span
+                className={clsx(
+                  "block my-1 h-0.5 w-5 bg-slate-800 transition-opacity",
+                  mobileOpen && "opacity-0"
+                )}
+              />
+              <span
+                className={clsx(
+                  "block h-0.5 w-5 bg-slate-800 transition-all",
+                  mobileOpen && "-translate-y-1.5 -rotate-45"
+                )}
+              />
             </button>
           )}
         </div>
@@ -118,6 +135,9 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
             <div className="flex flex-col gap-2 pt-3">
               <NavButton to="/sales" onClick={() => setMobileOpen(false)}>
                 Sales
+              </NavButton>
+              <NavButton to="/performance" onClick={() => setMobileOpen(false)}>
+                Performance
               </NavButton>
               <NavButton to="/leaderboard" onClick={() => setMobileOpen(false)}>
                 Leaderboard
@@ -149,7 +169,8 @@ function NavButton({ to, children, onClick }) {
         clsx(
           "btn btn-ghost btn-sm px-3",
           "text-slate-800/90",
-          isActive && "btn-active bg-transparent border-b-2 border-yellow-200 text-slate-900 font-semibold"
+          isActive &&
+            "btn-active bg-transparent border-b-2 border-yellow-200 text-slate-900 font-semibold"
         )
       }
       onClick={onClick}
