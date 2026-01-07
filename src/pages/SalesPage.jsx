@@ -8,7 +8,8 @@ import WeeklyTable from "../components/WeeklyTable.jsx";
 import TeamFilter from "../components/TeamFilter.jsx";
 
 export default function SalesPage() {
-  const { isAdmin, loading } = useAuthRole(); // logged-in => true
+  const { isAdmin, permissions, loading } = useAuthRole(); // logged-in => true
+  const canEditSales = isAdmin && permissions.canEditSales;
   const [weekISO, setWeekISO] = useState(toISO(startOfWeek()));
   const [params, setParams] = useSearchParams();
   const location = params.get("location") || "All";
@@ -55,7 +56,7 @@ export default function SalesPage() {
       <WeeklyTable
         base="weeks"
         weekISO={weekISO}
-        isAdmin={isAdmin}
+        canEdit={canEditSales}
         metricKey="sales"
         goalKey="salesGoal"
         title="Weekly Grid"

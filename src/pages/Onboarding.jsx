@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { collection, doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { useAuthRole } from "../hooks/useAuth";
 
 const sections = [
   {
@@ -181,19 +182,22 @@ const normalizeProgram = (program) => {
 const SHOW_EMAIL_COLUMN = false; // Toggle back to true to restore the email/send column
 
 export default function OnboardingPage() {
+  const { isAdmin, permissions, loading: authLoading } = useAuthRole();
+  const canEditOnboarding = isAdmin && permissions.canEditOnboarding;
   const [roster, setRoster] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState(emailTemplates[0].key);
   const [taskModalRep, setTaskModalRep] = useState(null);
 
   useEffect(() => {
+    if (!isAdmin) return;
     const unsub = onSnapshot(collection(db, "roster"), (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setRoster(list);
       setLoading(false);
     });
     return () => unsub();
-  }, []);
+  }, [isAdmin]);
 
   const grouped = useMemo(() => {
     const buckets = { att: [], tfiber: [], frontier: [], other: [] };
@@ -223,6 +227,10 @@ export default function OnboardingPage() {
   }, [roster]);
 
   const handleToggle = async (rep, task) => {
+    if (!canEditOnboarding) {
+      alert("You don't have permission to edit onboarding.");
+      return;
+    }
     const current = rep.checks[task];
     const next = !current;
     const tasks = rep.tasks;
@@ -239,6 +247,10 @@ export default function OnboardingPage() {
     };
 
   const handleEditNotes = async (rep) => {
+    if (!canEditOnboarding) {
+      alert("You don't have permission to edit onboarding.");
+      return;
+    }
     const current = rep.notes || "";
     const next = window.prompt("Add or update notes for this rep:", current);
     if (next === null) return;
@@ -285,6 +297,10 @@ export default function OnboardingPage() {
   };
 
   const handleExport = () => {
+    if (!canEditOnboarding) {
+      alert("You don't have permission to export onboarding.");
+      return;
+    }
     const reps = [...grouped.att, ...grouped.tfiber, ...grouped.frontier, ...grouped.other];
     if (!reps.length) {
       alert("No onboarding reps to export.");
@@ -336,6 +352,14 @@ export default function OnboardingPage() {
     document.body.removeChild(link);
     setTimeout(() => URL.revokeObjectURL(url), 1500);
   };
+
+  if (authLoading) {
+    return <div className="p-6 text-slate-600">Loading...</div>;
+  }
+
+  if (!isAdmin) {
+    return <div className="p-6 text-slate-600">Admin access required.</div>;
+  }
 
   return (
     <div className="p-4 lg:p-6">
@@ -392,7 +416,7 @@ export default function OnboardingPage() {
                 type="button"
                 className="btn btn-sm p-1 rounded-full bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50"
                 onClick={handleExport}
-                disabled={loading || totalRows === 0}
+                disabled={loading || totalRows === 0 || !canEditOnboarding}
               >
                 Export CSV
               </button>
@@ -450,6 +474,7 @@ export default function OnboardingPage() {
                             className="w-full"
                             onClick={() => setTaskModalRep(rep)}
                             title="Click to update tasks"
+                            disabled={!canEditOnboarding}
                           >
                             <div className="mx-auto h-2 w-28 overflow-hidden rounded-full bg-slate-200">
                               <div
@@ -466,7 +491,7 @@ export default function OnboardingPage() {
                           <div
                             role="button"
                             tabIndex={0}
-                            className="mx-auto max-w-xs cursor-pointer rounded-lg border border-dashed border-slate-300 px-2 py-1 text-xs text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                            className={`mx-auto max-w-xs rounded-lg border border-dashed border-slate-300 px-2 py-1 text-xs text-slate-700 transition ${canEditOnboarding ? "cursor-pointer hover:border-slate-400 hover:bg-slate-50" : "cursor-not-allowed opacity-60"}`}
                             onClick={() => handleEditNotes(rep)}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" || e.key === " ") {
@@ -558,6 +583,7 @@ export default function OnboardingPage() {
                     className="checkbox checkbox-sm"
                     checked={!!taskModalRep.checks[t]}
                     onChange={() => handleToggle(taskModalRep, t)}
+                    disabled={!canEditOnboarding}
                   />
                 </label>
               ))}

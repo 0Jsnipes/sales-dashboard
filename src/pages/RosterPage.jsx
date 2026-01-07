@@ -11,10 +11,11 @@ import {
   collectionGroup,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { useAuth } from "../hooks/useAuth";
+import { useAuthRole } from "../hooks/useAuth";
 
 export default function RosterPage() {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, permissions, loading } = useAuthRole();
+  const canEditRoster = isAdmin && permissions.canEditRoster;
 
   const [reps, setReps] = useState([]);
   const [options, setOptions] = useState({
@@ -106,6 +107,7 @@ export default function RosterPage() {
   };
 
   useEffect(() => {
+    if (!isAdmin) return;
     const unsub = onSnapshot(collection(db, "roster"), (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
@@ -122,7 +124,7 @@ export default function RosterPage() {
     });
 
     return () => unsub();
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     setSelectedIds((prev) => {
@@ -134,6 +136,7 @@ export default function RosterPage() {
   }, [reps]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     const unsub = onSnapshot(collection(db, "rosterOptions"), (snap) => {
       const grouped = { manager: [], location: [], program: [] };
       snap.forEach((d) => {
@@ -158,9 +161,10 @@ export default function RosterPage() {
     });
 
     return () => unsub();
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     const unsub = onSnapshot(collection(db, "rosterTerminated"), (snap) => {
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -174,9 +178,10 @@ export default function RosterPage() {
       setTerminated(list);
     });
     return () => unsub();
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     let cancelled = false;
 
     const fetchTotals = async () => {
@@ -209,7 +214,7 @@ export default function RosterPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isAdmin]);
 
   const managers = useMemo(() => {
     const set = new Set(
@@ -809,12 +814,20 @@ export default function RosterPage() {
     };
   };
 
+  if (loading) {
+    return <div className="p-6 text-slate-600">Loading...</div>;
+  }
+
+  if (!isAdmin) {
+    return <div className="p-6 text-slate-600">Admin access required.</div>;
+  }
+
   return (
     <div className="p-4 lg:p-6">
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold">Rep Roster</h1>
-          {isAdmin && (
+          {canEditRoster && (
             <button
               type="button"
               aria-label="Toggle terminated view"
@@ -862,7 +875,7 @@ export default function RosterPage() {
           <span className="text-xs opacity-70">
             Showing {visibleReps.length} of {reps.length} reps
           </span>
-          {isAdmin && !showTerminated && (
+          {canEditRoster && !showTerminated && (
             <button
               type="button"
               className="btn btn-error btn-sm"
@@ -875,7 +888,7 @@ export default function RosterPage() {
         </div>
       </div>
 
-      {isAdmin && (
+      {canEditRoster && (
         <div className="mb-6 rounded-2xl bg-base-100 p-4 shadow">
           <h2 className="mb-3 text-sm font-semibold">Add Rep to Roster</h2>
           <form
@@ -1077,7 +1090,7 @@ export default function RosterPage() {
               }`}
             >
               <tr>
-                {isAdmin && !showTerminated && (
+                {canEditRoster && !showTerminated && (
                   <th className="w-[44px] text-center">
                     <input
                       type="checkbox"
@@ -1095,7 +1108,7 @@ export default function RosterPage() {
                 <th className="min-w-[170px] text-center">
                   {showTerminated ? "Deleted" : "Added"}
                 </th>
-                {isAdmin && <th className="w-[100px]" />}
+                {canEditRoster && <th className="w-[100px]" />}
               </tr>
             </thead>
             <tbody
@@ -1114,7 +1127,7 @@ export default function RosterPage() {
                     key={r.id}
                     style={isEmailed ? { backgroundColor: "#fee2e2" } : undefined}
                   >
-                    {isAdmin && !showTerminated && (
+                    {canEditRoster && !showTerminated && (
                       <td className="text-center">
                         <input
                           type="checkbox"
@@ -1318,7 +1331,7 @@ export default function RosterPage() {
                         ? formatTimestamp(r.deletedAt)
                         : formatTimestamp(r.createdAt)}
                     </td>
-                    {isAdmin && (
+                    {canEditRoster && (
                       <td className="text-right">
                         {showTerminated ? (
                           <div className="flex justify-end gap-2">
@@ -1397,7 +1410,7 @@ export default function RosterPage() {
               {(showTerminated ? terminated : visibleReps).length === 0 && (
                 <tr>
                   <td
-                    colSpan={isAdmin ? (showTerminated ? 6 : 7) : 5}
+                    colSpan={canEditRoster ? (showTerminated ? 6 : 7) : 5}
                     className="py-6 text-center text-sm text-slate-500"
                   >
                     {showTerminated

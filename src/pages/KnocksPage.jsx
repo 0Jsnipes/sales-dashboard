@@ -8,7 +8,8 @@ import WeeklyTable from "../components/WeeklyTable.jsx";
 import TeamFilter from "../components/TeamFilter.jsx";
 
 export default function KnocksPage() {
-  const { isAdmin, loading } = useAuthRole();
+  const { isAdmin, permissions, loading } = useAuthRole();
+  const canEditKnocks = isAdmin && permissions.canEditKnocks;
   const [weekISO, setWeekISO] = useState(toISO(startOfWeek()));
   const [params, setParams] = useSearchParams();
   const location = params.get("location") || "All";
@@ -56,7 +57,7 @@ export default function KnocksPage() {
       <WeeklyTable
         base="weeks"
         weekISO={weekISO}
-        isAdmin={isAdmin}
+        canEdit={canEditKnocks}
         metricKey="knocks"
         goalKey="knocksGoal"
         title="Weekly Grid (Knocks)"

@@ -10,7 +10,12 @@ import {
 } from "recharts";
 
 export default function RepComparisonChart({ data, colors }) {
-  const chartData = data.reps.map((rep) => ({
+  const uniqueReps = data.reps.filter((rep, idx, all) => {
+    const normalizedName = rep.name.trim().toLowerCase();
+    return all.findIndex((item) => item.name.trim().toLowerCase() === normalizedName) === idx;
+  });
+
+  const chartData = uniqueReps.map((rep) => ({
     name: rep.name.split(" ")[0],
     knocks: rep.knocks,
     sales: rep.sales,

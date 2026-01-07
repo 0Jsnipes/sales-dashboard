@@ -3,7 +3,15 @@ import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import clsx from "clsx";
 
-export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLogin }) {
+export default function Navbar({
+  hidden,
+  setHidden,
+  isAdmin,
+  isSuperAdmin,
+  canViewPerformance,
+  onLogout,
+  onOpenLogin,
+}) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -64,11 +72,14 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
           {isAdmin ? (
             <>
               <NavButton to="/sales">Sales</NavButton>
-              <NavButton to="/performance">Performance</NavButton>
+              {canViewPerformance ? (
+                <NavButton to="/performance">Performance</NavButton>
+              ) : null}
               {/*<NavButton to="/leaderboard">Leaderboard</NavButton> removed til further notice just do not need right now*/}
               <NavButton to="/knocks">Knocks</NavButton>
               <NavButton to="/roster">Roster</NavButton>
               <NavButton to="/onboarding">Onboarding</NavButton>
+              {isSuperAdmin ? <NavButton to="/settings">Settings</NavButton> : null}
             </>
           ) : (
             <>
@@ -136,9 +147,11 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
               <NavButton to="/sales" onClick={() => setMobileOpen(false)}>
                 Sales
               </NavButton>
-              <NavButton to="/performance" onClick={() => setMobileOpen(false)}>
-                Performance
-              </NavButton>
+              {canViewPerformance ? (
+                <NavButton to="/performance" onClick={() => setMobileOpen(false)}>
+                  Performance
+                </NavButton>
+              ) : null}
               <NavButton to="/leaderboard" onClick={() => setMobileOpen(false)}>
                 Leaderboard
               </NavButton>
@@ -151,6 +164,11 @@ export default function Navbar({ hidden, setHidden, isAdmin, onLogout, onOpenLog
               <NavButton to="/onboarding" onClick={() => setMobileOpen(false)}>
                 Onboarding
               </NavButton>
+              {isSuperAdmin ? (
+                <NavButton to="/settings" onClick={() => setMobileOpen(false)}>
+                  Settings
+                </NavButton>
+              ) : null}
             </div>
           </div>
         )}

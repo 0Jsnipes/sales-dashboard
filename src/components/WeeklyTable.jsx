@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import {
+  addDoc,
   deleteDoc,
   doc,
   onSnapshot,
@@ -12,6 +13,7 @@ import { db } from "../lib/firebase";
 import { DAYS, prevWeekISO } from "../utils/weeks.js";
 import AddRepsModal from "./AddRepsModal";
 import EditRepsModal from "./EditRepsModal";
+import { useAuthRole } from "../hooks/useAuth.js";
 
 // Parse "YYYY-MM-DD" as LOCAL date to avoid UTC shift
 function parseLocalISO(iso) {
@@ -25,13 +27,14 @@ const clampNum = (v) =>
 export default function WeeklyTable({
   base = "weeks",
   weekISO,
-  isAdmin,
+  canEdit = false,
   metricKey = "sales",
   goalKey = "salesGoal",
   title = "Weekly Grid",
   teamFilter = "All",
   managerFilter = "All",
 }) {
+  const { user } = useAuthRole();
   const [rows, setRows] = useState([]);
   const [openAdd, setOpenAdd] = useState(false);
   const [repToEdit, setRepToEdit] = useState(null); // <-- per-rep edit
@@ -197,6 +200,7 @@ export default function WeeklyTable({
   // Saves
   const saveCell = async (rep, dayIdx, value) => {
     const n = value === "" ? 0 : clampNum(value);
+    const prev = clampNum((rep[metricKey] || [])[dayIdx] ?? 0);
     const arr = [...(rep[metricKey] || Array(7).fill(0))];
     arr[dayIdx] = n;
     const baseFields = {
@@ -211,6 +215,30 @@ export default function WeeklyTable({
       { ...baseFields, [metricKey]: arr },
       { merge: true }
     );
+    if (metricKey === "sales" && prev !== n) {
+      try {
+        await addDoc(collection(db, "auditLogs"), {
+          action: "update",
+          entity: "sales",
+          entityId: rep.id || null,
+          before: { value: prev },
+          after: { value: n },
+          meta: {
+            weekISO,
+            dayIndex: dayIdx,
+            repName: rep.name || "",
+            base,
+          },
+          actor: {
+            uid: user?.uid || null,
+            email: user?.email || null,
+          },
+          createdAt: serverTimestamp(),
+        });
+      } catch (err) {
+        console.error("Failed to write sales audit log", err);
+      }
+    }
   };
 
   const saveGoal = async (rep, value) =>
@@ -336,16 +364,16 @@ export default function WeeklyTable({
   return (
     <div
       className={`rounded-2xl bg-base-100 shadow ${
-        !isAdmin ? "pt-8" : "p-6"
-      } ${isAdmin ? "" : "px-4"} max-w-10xl mx-auto mb-6`}
+        !canEdit ? "pt-8" : "p-6"
+      } ${canEdit ? "" : "px-4"} max-w-10xl mx-auto mb-6`}
     >
       <div
         className={`flex items-center ${
-          isAdmin ? "justify-between" : "justify-start"
+          canEdit ? "justify-between" : "justify-start"
         } px-2 pt-4`}
       >
         <h2>{title}</h2>
-        {isAdmin && (
+        {canEdit && (
           <div className="flex gap-2">
             <button
               className="btn btn-primary btn-sm"
@@ -367,7 +395,7 @@ export default function WeeklyTable({
               {DAYS.map((d, i) => (
                 <th
                   key={d}
-                  className={`text-center ${!isAdmin ? "px-5" : ""}`}
+                  className={`text-center ${!canEdit ? "px-5" : ""}`}
                 >
                   <div className="flex flex-col items-center leading-tight">
                     <span className="font-medium">{d}</span>
@@ -378,19 +406,19 @@ export default function WeeklyTable({
                 </th>
               ))}
 
-              <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>
+              <th className={`text-center ${!canEdit ? "px-5" : ""}`}>
                 TOTAL
               </th>
               <th
                 className={`min-w-[100px] text-center ${
-                  !isAdmin ? "px-5" : ""
+                  !canEdit ? "px-5" : ""
                 }`}
               >
                 GOAL
               </th>
               <th className="min-w-[160px]">Progress</th>
               <th className="min-w-[140px]">Location</th>
-              {isAdmin && <th className="min-w-[140px]" />} {/* actions */}
+              {canEdit && <th className="min-w-[140px]" />} {/* actions */}
             </tr>
           </thead>
 
@@ -417,12 +445,12 @@ export default function WeeklyTable({
                   {DAYS.map((d, i) => (
                     <td
                       key={d}
-                      className={`text-center ${!isAdmin ? "px-5" : ""}`}
+                      className={`text-center ${!canEdit ? "px-5" : ""}`}
                     >
-                      {isAdmin ? (
-                      <input
-                        key={`${r.id}-${weekISO}-${i}-${arr[i] ?? 0}`}
-                        type="number"
+                      {canEdit ? (
+                        <input
+                          key={`${r.id}-${weekISO}-${i}-${arr[i] ?? 0}`}
+                          type="number"
                         min="0"
                         defaultValue={arr[i] ?? ""}
                         className="input input-bordered input-xs w-16 text-center"
@@ -440,14 +468,14 @@ export default function WeeklyTable({
 
                   <td
                     className={`text-center font-semibold ${
-                      !isAdmin ? "px-5" : ""
+                      !canEdit ? "px-5" : ""
                     }`}
                   >
                     {total}
                   </td>
 
-                  <td className={`text-center ${!isAdmin ? "px-5" : ""}`}>
-                    {isAdmin ? (
+                  <td className={`text-center ${!canEdit ? "px-5" : ""}`}>
+                    {canEdit ? (
                       <input
                         key={`${r.id}-${weekISO}-goal-${goal ?? 0}`}
                         type="number"
@@ -477,7 +505,7 @@ export default function WeeklyTable({
 
                   <td>{r.team || ""}</td>
 
-                  {isAdmin && (
+                  {canEdit && (
                     <td className="text-right">
                       <div className="flex justify-end gap-2">
                         <button
@@ -507,24 +535,24 @@ export default function WeeklyTable({
               {colTotals.dayTotals.map((v, i) => (
                 <th
                   key={i}
-                  className={`text-center ${!isAdmin ? "px-5" : ""}`}
+                  className={`text-center ${!canEdit ? "px-5" : ""}`}
                 >
                   {v}
                 </th>
               ))}
-              <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>
+              <th className={`text-center ${!canEdit ? "px-5" : ""}`}>
                 {colTotals.weekTotal}
               </th>
-              <th className={`text-center ${!isAdmin ? "px-5" : ""}`}>—</th>
+              <th className={`text-center ${!canEdit ? "px-5" : ""}`}>—</th>
               <th>—</th>
               <th>—</th>
-              {isAdmin && <th />}
+              {canEdit && <th />}
             </tr>
           </tfoot>
         </table>
       </div>
 
-      {isAdmin && (
+      {canEdit && (
         <div className="mt-4 flex justify-end">
           <button className="btn btn-error btn-sm" onClick={removeAll}>
             Delete All
@@ -536,7 +564,7 @@ export default function WeeklyTable({
         weekISO={weekISO}
         open={openAdd}
         onClose={() => setOpenAdd(false)}
-        isAdmin={isAdmin}
+        isAdmin={canEdit}
       />
 
       <EditRepsModal
