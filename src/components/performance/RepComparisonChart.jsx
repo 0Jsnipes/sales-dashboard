@@ -10,13 +10,22 @@ import {
 } from "recharts";
 
 export default function RepComparisonChart({ data, colors }) {
+  const formatRepLabel = (fullName) => {
+    const parts = (fullName || "").trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return "";
+    if (parts.length === 1) return parts[0];
+    const first = parts[0];
+    const lastInitial = parts[parts.length - 1][0] || "";
+    return `${first} ${lastInitial}.`;
+  };
+
   const uniqueReps = data.reps.filter((rep, idx, all) => {
     const normalizedName = rep.name.trim().toLowerCase();
     return all.findIndex((item) => item.name.trim().toLowerCase() === normalizedName) === idx;
   });
 
   const chartData = uniqueReps.map((rep) => ({
-    name: rep.name.split(" ")[0],
+    name: formatRepLabel(rep.name),
     knocks: rep.knocks,
     sales: rep.sales,
     conversionRate: ((rep.sales / rep.knocks) * 100).toFixed(1),
