@@ -19,10 +19,12 @@ export default function RepComparisonChart({ data, colors }) {
     return `${first} ${lastInitial}.`;
   };
 
-  const uniqueReps = data.reps.filter((rep, idx, all) => {
-    const normalizedName = rep.name.trim().toLowerCase();
-    return all.findIndex((item) => item.name.trim().toLowerCase() === normalizedName) === idx;
-  });
+  const uniqueReps = data.reps
+    .filter((rep) => (rep.knocks || 0) > 0 || (rep.sales || 0) > 0)
+    .filter((rep, idx, all) => {
+      const normalizedName = rep.name.trim().toLowerCase();
+      return all.findIndex((item) => item.name.trim().toLowerCase() === normalizedName) === idx;
+    });
 
   const chartData = uniqueReps.map((rep) => ({
     name: formatRepLabel(rep.name),
@@ -39,7 +41,7 @@ export default function RepComparisonChart({ data, colors }) {
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
+            <XAxis dataKey="name" hide />
             <YAxis />
             <Tooltip />
             <Legend />

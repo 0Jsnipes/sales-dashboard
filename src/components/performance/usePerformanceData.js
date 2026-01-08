@@ -77,7 +77,7 @@ const buildDashboardData = (dates, weekMap) => {
       existing.name = rep.name || existing.name;
       existing.knocks += knocks;
       existing.sales += sales;
-      if (knocks > 0) {
+      if (knocks > 0 || sales > 0) {
         existing._activeDays.add(dateISO);
       }
 
