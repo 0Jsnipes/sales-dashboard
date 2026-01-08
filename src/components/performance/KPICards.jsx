@@ -132,7 +132,7 @@ export default function KPICards({ data, selectedRep }) {
           bgColor: "bg-amber-50"
         },
         {
-          label: "Active Reps Today",
+          label: "Active Reps Yesterday",
           value: data.companyKPIs.activeReps,
           icon: IconUsers,
           color: "text-orange-600",
