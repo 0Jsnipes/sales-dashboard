@@ -7,7 +7,7 @@ const clampNum = (v) =>
 
 const rangeDays = (range) => (range === "7d" ? 7 : range === "30d" ? 30 : 90);
 
-const dayIndexForDate = (date) => (date.getUTCDay() + 6) % 7;
+const dayIndexForDate = (date) => ((date.getUTCDay() + 6) % 7 - 1 ) % 7;
 
 const weekISOForDate = (date) => {
   const utc = new Date(
