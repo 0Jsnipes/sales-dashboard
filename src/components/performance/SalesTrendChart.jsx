@@ -10,9 +10,15 @@ import {
 } from "recharts";
 
 export default function SalesTrendChart({ data, selectedRep, colors }) {
+  const title = "Knocks and Sales Trend";
+  const knocksLabel = "Knocks";
+  const salesLabel = "Sales";
+
   const chartData = data.dailyData.map((day) => {
+    const [year, month, dateNum] = day.date.split("-").map(Number);
+    const localDate = new Date(year, (month || 1) - 1, dateNum || 1);
     const result = {
-      date: new Date(day.date).toLocaleDateString("en-US", {
+      date: localDate.toLocaleDateString("en-US", {
         month: "short",
         day: "numeric"
       })
@@ -37,7 +43,7 @@ export default function SalesTrendChart({ data, selectedRep, colors }) {
 
   return (
     <div className="rounded-2xl bg-base-100 p-6 shadow">
-      <h3 className="text-lg font-semibold text-slate-900">Knocks and Sales Trend</h3>
+      <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
       <div className="mt-4 h-72">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData}>
@@ -51,14 +57,14 @@ export default function SalesTrendChart({ data, selectedRep, colors }) {
               dataKey="knocks"
               stroke={colors.knocks}
               strokeWidth={2}
-              name="Knocks"
+              name={knocksLabel}
             />
             <Line
               type="monotone"
               dataKey="sales"
               stroke={colors.sales}
               strokeWidth={2}
-              name="Sales"
+              name={salesLabel}
             />
           </LineChart>
         </ResponsiveContainer>

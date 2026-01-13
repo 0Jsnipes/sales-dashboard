@@ -10,6 +10,8 @@ import {
 } from "recharts";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { useDemoMode } from "../hooks/useDemoMode";
+import { getDemoWeekRows } from "../demo/demoData.js";
 
 // AB brand colors
 const AB_PRIMARY = "#101010";
@@ -39,9 +41,56 @@ export default function WeeklyChart({
   title = "Weekly Sales",
   teamFilter = "All",
 }) {
+  const isDemo = useDemoMode();
   const [rows, setRows] = useState(null); // null = loading
 
   useEffect(() => {
+    if (isDemo) {
+      const normalize = (v) => (v ?? "").trim();
+      const teamFilterNorm = normalize(teamFilter);
+      const demoRows = getDemoWeekRows(weekISO)
+        .filter((v) => {
+          if (
+            teamFilterNorm &&
+            teamFilterNorm !== "All" &&
+            normalize(v.team) !== teamFilterNorm
+          )
+            return false;
+          return true;
+        })
+        .map((v) => {
+          const arr =
+            Array.isArray(v[metricKey]) && v[metricKey].length === 7
+              ? v[metricKey]
+              : Array(7).fill(0);
+          const total = arr.reduce((a, b) => a + clampNum(b), 0);
+          return { ...v, total };
+        });
+
+      const dedup = new Map();
+      demoRows.forEach((row) => {
+        const k = keyForRep(row);
+        if (!k) return;
+        const existing = dedup.get(k);
+        if (!existing || row.total > existing.total) {
+          dedup.set(k, row);
+        }
+      });
+
+      const data = Array.from(dedup.values())
+        .map((v) => ({
+          id: v.id,
+          name: v.name || "Unnamed",
+          total: v.total,
+        }))
+        .sort((a, b) =>
+          a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+        );
+
+      setRows(data);
+      return undefined;
+    }
+
     const q = query(collection(db, base, weekISO, "reps"));
     return onSnapshot(q, (s) => {
       const normalize = (v) => (v ?? "").trim();
@@ -88,7 +137,7 @@ export default function WeeklyChart({
 
       setRows(data);
     });
-  }, [base, weekISO, metricKey, teamFilter]);
+  }, [base, weekISO, metricKey, teamFilter, isDemo]);
 
   const maxY = useMemo(() => {
     if (!rows || rows.length === 0) return 5;

@@ -14,32 +14,34 @@ import PerformanceDashboardPage from "./pages/PerformanceDashboardPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
 
 export default function App() {
-  const { user, isAdmin, isSuperAdmin, loading } = useAuthRole();
+  const { user, isAdmin, isSuperAdmin, loading, isDemo } = useAuthRole();
   const [navHidden, setNavHidden] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const performanceAllowlist = [
-    "j.sexton@abenergymarketing.com",
     "snipes1995@gmail.com",
   ];
   const canViewPerformance =
-    isAdmin && user?.email && performanceAllowlist.includes(user.email);
+    (isAdmin && user?.email && performanceAllowlist.includes(user.email)) ||
+    isDemo;
+  const showNav = isAdmin || isDemo;
 
   return (
     <div className="min-h-screen bg-white/30 backdrop-blur-xl backdrop-saturate-150 relative">
       <div className="fixed inset-0 pointer-events-none bg-[url('/noise.png')] opacity-10 mix-blend-soft-light" />
       <BrowserRouter>
-        {isAdmin && (
+        {showNav && (
           <Navbar
             hidden={navHidden}
             setHidden={setNavHidden}
             isAdmin={isAdmin}
             isSuperAdmin={isSuperAdmin}
+            isDemo={isDemo}
             canViewPerformance={canViewPerformance}
             onLogout={() => signOut(auth)}
             onOpenLogin={() => setLoginOpen(true)}
           />
         )}
-        {!isAdmin && !loading && (
+        {!showNav && !loading && (
           <div className="sticky top-0 z-40 bg-white/70 backdrop-blur border-b border-black/10">
             <div className="mx-auto flex max-w-6xl items-center justify-between px-3 py-2 sm:px-4">
               <div className="flex items-center gap-2">
@@ -72,14 +74,22 @@ export default function App() {
           />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
           <Route path="/knocks" element={<KnocksPage />} />
-          <Route path="/roster" element={<RosterPage />} />
-          <Route path="/onboarding" element={<OnboardingPage />} />
+          <Route
+            path="/roster"
+            element={isDemo ? <Navigate to="/sales" replace /> : <RosterPage />}
+          />
+          <Route
+            path="/onboarding"
+            element={
+              isDemo ? <Navigate to="/sales" replace /> : <OnboardingPage />
+            }
+          />
           <Route
             path="/settings"
             element={
               loading ? (
                 <div className="p-6 text-slate-600">Checking access...</div>
-              ) : isSuperAdmin ? (
+              ) : !isDemo && isSuperAdmin ? (
                 <SettingsPage />
               ) : (
                 <Navigate to="/sales" replace />

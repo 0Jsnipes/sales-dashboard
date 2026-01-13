@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../../lib/firebase";
+import { useDemoMode } from "../../hooks/useDemoMode";
+import { getDemoPerformanceData } from "../../demo/demoData.js";
 
 const clampNum = (v) =>
   Number.isFinite(+v) && +v >= 0 ? Math.floor(+v) : 0;
 
 const rangeDays = (range) => (range === "7d" ? 7 : range === "30d" ? 30 : 90);
 
-const dayIndexForDate = (date) => ((date.getUTCDay() + 6) % 7 - 1 ) % 7;
+const dayIndexForDate = (date) => (date.getUTCDay() + 6) % 7;
 
 const weekISOForDate = (date) => {
   const utc = new Date(
@@ -33,9 +35,11 @@ const buildDateRange = (days) => {
   const todayUTC = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
   );
+  const endUTC = new Date(todayUTC);
+  endUTC.setUTCDate(todayUTC.getUTCDate() - 1);
   for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(todayUTC);
-    d.setUTCDate(todayUTC.getUTCDate() - i);
+    const d = new Date(endUTC);
+    d.setUTCDate(endUTC.getUTCDate() - i);
     dates.push(d);
   }
   return dates;
@@ -134,6 +138,7 @@ const buildDashboardData = (dates, weekMap) => {
 };
 
 export function usePerformanceData(dateRange) {
+  const isDemo = useDemoMode();
   const [state, setState] = useState({
     loading: true,
     data: null,
@@ -141,6 +146,15 @@ export function usePerformanceData(dateRange) {
   });
 
   useEffect(() => {
+    if (isDemo) {
+      setState({
+        loading: false,
+        data: getDemoPerformanceData(dateRange),
+        error: null
+      });
+      return undefined;
+    }
+
     let active = true;
     setState({ loading: true, data: null, error: null });
 
@@ -188,7 +202,7 @@ export function usePerformanceData(dateRange) {
       active = false;
       unsubs.forEach((unsub) => unsub());
     };
-  }, [dateRange]);
+  }, [dateRange, isDemo]);
 
   return state;
 }

@@ -8,7 +8,7 @@ import WeeklyTable from "../components/WeeklyTable.jsx";
 import TeamFilter from "../components/TeamFilter.jsx";
 
 export default function KnocksPage() {
-  const { isAdmin, permissions, loading } = useAuthRole();
+  const { isAdmin, isDemo, permissions, loading } = useAuthRole();
   const canEditKnocks = isAdmin && permissions.canEditKnocks;
   const [weekISO, setWeekISO] = useState(toISO(startOfWeek()));
   const [params, setParams] = useSearchParams();
@@ -43,7 +43,7 @@ export default function KnocksPage() {
           setLocation={setLocation}
           manager={manager}
           setManager={setManager}
-          canChange={isAdmin}
+          canChange={isAdmin || isDemo}
         />
       </div>
 

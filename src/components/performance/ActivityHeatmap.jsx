@@ -2,6 +2,10 @@ import { useState } from "react";
 
 export default function ActivityHeatmap({ data, selectedRep, dateRange, colors }) {
   const [highlightedRep, setHighlightedRep] = useState(null);
+  const parseLocalDate = (dateStr) => {
+    const [year, month, day] = dateStr.split("-").map(Number);
+    return new Date(year, (month || 1) - 1, day || 1);
+  };
   const getDaysFromRange = () => {
     const numDays = dateRange === "7d" ? 7 : dateRange === "30d" ? 30 : 90;
     return data.dailyData.slice(-numDays);
@@ -46,9 +50,12 @@ export default function ActivityHeatmap({ data, selectedRep, dateRange, colors }
     dateRange === "7d" ? "Last 7 Days" : dateRange === "30d" ? "Last 30 Days" : "Last 90 Days";
 
   const formatWeekLabel = (date) =>
-    new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    parseLocalDate(date).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric"
+    });
   const formatDayLabel = (date) =>
-    new Date(date).toLocaleDateString("en-US", { weekday: "short" });
+    parseLocalDate(date).toLocaleDateString("en-US", { weekday: "short" });
 
   return (
     <div className="rounded-2xl bg-base-100 p-6 shadow">
@@ -62,13 +69,13 @@ export default function ActivityHeatmap({ data, selectedRep, dateRange, colors }
               <tr className="text-slate-600">
                 <th className="text-left">Rep</th>
                 {days.map((day, idx) => (
-                  <th key={idx} className="text-center text-xs font-medium">
-                    {new Date(day.date).toLocaleDateString("en-US", {
+                    <th key={idx} className="text-center text-xs font-medium">
+                    {parseLocalDate(day.date).toLocaleDateString("en-US", {
                       weekday: "short",
                       month: "numeric",
                       day: "numeric"
                     })}
-                  </th>
+                    </th>
                 ))}
               </tr>
             </thead>

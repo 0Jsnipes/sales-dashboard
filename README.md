@@ -2,6 +2,12 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## Demo mode
+
+- Add `?demo=true` to the URL (example: `http://localhost:5173/sales?demo=true`).
+- Or set `VITE_DEMO_MODE=true` in `.env.local` and restart the dev server.
+- Demo mode is read-only and uses mock data.
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh

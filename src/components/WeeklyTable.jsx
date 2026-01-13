@@ -14,6 +14,8 @@ import { DAYS, prevWeekISO } from "../utils/weeks.js";
 import AddRepsModal from "./AddRepsModal";
 import EditRepsModal from "./EditRepsModal";
 import { useAuthRole } from "../hooks/useAuth.js";
+import { useDemoMode } from "../hooks/useDemoMode";
+import { getDemoWeekRows } from "../demo/demoData.js";
 
 // Parse "YYYY-MM-DD" as LOCAL date to avoid UTC shift
 function parseLocalISO(iso) {
@@ -35,6 +37,7 @@ export default function WeeklyTable({
   managerFilter = "All",
 }) {
   const { user } = useAuthRole();
+  const isDemo = useDemoMode();
   const [rows, setRows] = useState([]);
   const [openAdd, setOpenAdd] = useState(false);
   const [repToEdit, setRepToEdit] = useState(null); // <-- per-rep edit
@@ -55,6 +58,44 @@ export default function WeeklyTable({
 
   // Load rows (alphabetical) with previous-week fallback (zeroed)
   useEffect(() => {
+    if (isDemo) {
+      const normalizeFilter = (v) => (v ?? "").trim();
+      const teamFilterNorm = normalizeFilter(teamFilter);
+      const managerFilterNorm = normalizeFilter(managerFilter);
+      const matchesFilters = (rep) =>
+        (teamFilterNorm === "" ||
+          teamFilterNorm === "All" ||
+          normalizeFilter(rep.team) === teamFilterNorm) &&
+        (managerFilterNorm === "" ||
+          managerFilterNorm === "All" ||
+          normalizeFilter(rep.manager) === managerFilterNorm);
+
+      const demoRows = getDemoWeekRows(weekISO)
+        .filter((row) => !row.deleted && matchesFilters(row))
+        .map((row) => ({
+          ...row,
+          sales:
+            Array.isArray(row.sales) && row.sales.length === 7
+              ? row.sales
+              : Array(7).fill(0),
+          knocks:
+            Array.isArray(row.knocks) && row.knocks.length === 7
+              ? row.knocks
+              : Array(7).fill(0),
+          salesGoal: clampNum(row.salesGoal),
+          knocksGoal: clampNum(row.knocksGoal),
+          deleted: !!row.deleted,
+        }))
+        .sort((a, b) =>
+          (a.name || "").localeCompare(b.name || "", undefined, {
+            sensitivity: "base",
+          })
+        );
+
+      setRows(demoRows);
+      return undefined;
+    }
+
     let cancelled = false;
 
     const keyForRep = (rep) => {
@@ -174,7 +215,7 @@ export default function WeeklyTable({
       cancelled = true;
       unsub();
     };
-  }, [base, weekISO, teamFilter, managerFilter, metricKey]);
+  }, [base, weekISO, teamFilter, managerFilter, metricKey, isDemo]);
 
   // Totals
   const colTotals = useMemo(() => {

@@ -8,12 +8,14 @@ export default function Navbar({
   setHidden,
   isAdmin,
   isSuperAdmin,
+  isDemo,
   canViewPerformance,
   onLogout,
   onOpenLogin,
 }) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const showNav = isAdmin || isDemo;
 
   // Add shadow/border after slight scroll
   useEffect(() => {
@@ -25,8 +27,8 @@ export default function Navbar({
 
   // Close mobile menu if admin status changes (e.g., logout)
   useEffect(() => {
-    if (!isAdmin) setMobileOpen(false);
-  }, [isAdmin]);
+    if (!showNav) setMobileOpen(false);
+  }, [showNav]);
 
   if (hidden) {
     return (
@@ -69,17 +71,18 @@ export default function Navbar({
 
         {/* Center: primary nav */}
         <nav className="hidden sm:flex items-center gap-5">
-          {isAdmin ? (
+          {showNav ? (
             <>
               <NavButton to="/sales">Sales</NavButton>
               {canViewPerformance ? (
                 <NavButton to="/performance">Performance</NavButton>
               ) : null}
-              {/*<NavButton to="/leaderboard">Leaderboard</NavButton> removed til further notice just do not need right now*/}
               <NavButton to="/knocks">Knocks</NavButton>
-              <NavButton to="/roster">Roster</NavButton>
-              <NavButton to="/onboarding">Onboarding</NavButton>
-              {isSuperAdmin ? <NavButton to="/settings">Settings</NavButton> : null}
+              {isAdmin ? <NavButton to="/roster">Roster</NavButton> : null}
+              {isAdmin ? <NavButton to="/onboarding">Onboarding</NavButton> : null}
+              {isSuperAdmin ? (
+                <NavButton to="/settings">Settings</NavButton>
+              ) : null}
             </>
           ) : (
             <>
@@ -92,6 +95,9 @@ export default function Navbar({
 
         {/* Right: auth controls */}
         <div className="flex items-center gap-2">
+          {isDemo && !isAdmin && (
+            <span className="badge badge-outline text-xs">Demo Mode</span>
+          )}
           {isAdmin ? (
             <button className="btn btn-outline btn-sm" onClick={onLogout}>
               Logout
@@ -102,7 +108,7 @@ export default function Navbar({
             </button>
           )}
 
-          {isAdmin && (
+          {showNav && (
             <button
               className="btn btn-ghost btn-sm sm:hidden"
               onClick={() => setMobileOpen((v) => !v)}
@@ -133,7 +139,7 @@ export default function Navbar({
           )}
         </div>
 
-        {isAdmin && (
+        {showNav && (
           <div
             id="mobile-nav"
             className={clsx(
@@ -152,18 +158,19 @@ export default function Navbar({
                   Performance
                 </NavButton>
               ) : null}
-              <NavButton to="/leaderboard" onClick={() => setMobileOpen(false)}>
-                Leaderboard
-              </NavButton>
               <NavButton to="/knocks" onClick={() => setMobileOpen(false)}>
                 Knocks
               </NavButton>
-              <NavButton to="/roster" onClick={() => setMobileOpen(false)}>
-                Roster
-              </NavButton>
-              <NavButton to="/onboarding" onClick={() => setMobileOpen(false)}>
-                Onboarding
-              </NavButton>
+              {isAdmin ? (
+                <NavButton to="/roster" onClick={() => setMobileOpen(false)}>
+                  Roster
+                </NavButton>
+              ) : null}
+              {isAdmin ? (
+                <NavButton to="/onboarding" onClick={() => setMobileOpen(false)}>
+                  Onboarding
+                </NavButton>
+              ) : null}
               {isSuperAdmin ? (
                 <NavButton to="/settings" onClick={() => setMobileOpen(false)}>
                   Settings

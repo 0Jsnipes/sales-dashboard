@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
+import { useDemoMode } from "./useDemoMode";
 
 const SUPER_ADMIN_EMAIL = "snipes1995@gmail.com";
 const EMPTY_PERMS = {
@@ -18,12 +19,21 @@ const ALL_PERMS = {
 };
 
 export function useAuthRole() {
+  const isDemo = useDemoMode();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [permissions, setPermissions] = useState(EMPTY_PERMS);
   const [hasAdminProfile, setHasAdminProfile] = useState(false);
 
   useEffect(() => {
+    if (isDemo) {
+      setUser(null);
+      setPermissions(EMPTY_PERMS);
+      setHasAdminProfile(false);
+      setLoading(false);
+      return undefined;
+    }
+
     let unsubAdmin = null;
 
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -44,34 +54,15 @@ export function useAuthRole() {
       if (isSuperAdmin) {
         setPermissions(ALL_PERMS);
         setHasAdminProfile(true);
+        return;
       }
-
-      unsubAdmin = onSnapshot(doc(db, "adminUsers", u.uid), (snap) => {
-        if (!snap.exists()) {
-          if (!isSuperAdmin) {
-            setPermissions(EMPTY_PERMS);
-            setHasAdminProfile(false);
-          }
-          return;
-        }
-
-        const data = snap.data() || {};
-        const nextPerms = {
-          canEditSales: !!data.canEditSales,
-          canEditKnocks: !!data.canEditKnocks,
-          canEditRoster: !!data.canEditRoster,
-          canEditOnboarding: !!data.canEditOnboarding,
-        };
-        setPermissions(isSuperAdmin ? ALL_PERMS : nextPerms);
-        setHasAdminProfile(true);
-      });
     });
 
     return () => {
       if (unsubAdmin) unsubAdmin();
       unsub();
     };
-  }, []);
+  }, [isDemo]);
 
   const isSuperAdmin =
     !!user?.email && user.email.toLowerCase() === SUPER_ADMIN_EMAIL;
@@ -79,11 +70,12 @@ export function useAuthRole() {
 
   return {
     user,
-    role: isAdmin ? "admin" : "viewer",
+    role: isAdmin ? "admin" : isDemo ? "demo" : "viewer",
     isAdmin,
     isSuperAdmin,
     permissions,
     loading,
+    isDemo,
   };
 }
 

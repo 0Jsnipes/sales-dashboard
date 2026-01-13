@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { useDemoMode } from "../hooks/useDemoMode";
+import { getDemoWeekRows } from "../demo/demoData.js";
 
 /**
  * Props:
@@ -19,11 +21,25 @@ export default function TeamFilter({
   setManager,
   canChange = true,
 }) {
+  const isDemo = useDemoMode();
   const [locations, setLocations] = useState(["All"]);
   const [managers, setManagers] = useState(["All"]);
 
   useEffect(() => {
     if (!weekISO) return;
+    if (isDemo) {
+      const locSet = new Set();
+      const mgrSet = new Set();
+      getDemoWeekRows(weekISO).forEach((data) => {
+        const t = (data.team || "").trim();
+        const m = (data.manager || "").trim();
+        if (t) locSet.add(t);
+        if (m) mgrSet.add(m);
+      });
+      setLocations(["All", ...Array.from(locSet).sort((a, b) => a.localeCompare(b))]);
+      setManagers(["All", ...Array.from(mgrSet).sort((a, b) => a.localeCompare(b))]);
+      return undefined;
+    }
     const unsub = onSnapshot(collection(db, "weeks", weekISO, "reps"), (s) => {
       const locSet = new Set();
       const mgrSet = new Set();
@@ -38,7 +54,7 @@ export default function TeamFilter({
       setManagers(["All", ...Array.from(mgrSet).sort((a, b) => a.localeCompare(b))]);
     });
     return () => unsub && unsub();
-  }, [weekISO]);
+  }, [weekISO, isDemo]);
 
   const handleChange = (e) => {
     if (!canChange) return; // hard block

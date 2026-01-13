@@ -6,6 +6,7 @@ import { useAuthRole } from "../hooks/useAuth";
 import { startOfWeek, toISO } from "../utils/weeks.js";
 import WeekSwitcher from "../components/WeekSwitcher.jsx";
 import TeamFilter from "../components/TeamFilter.jsx";
+import { getDemoWeekRows } from "../demo/demoData.js";
 
 const clampNum = (v) => (Number.isFinite(+v) && +v >= 0 ? Math.floor(+v) : 0);
 const medalIcon = (place) =>
@@ -19,7 +20,7 @@ const keyForRep = (rep) => {
 };
 
 export default function LeaderboardPage() {
-  const { isAdmin, loading } = useAuthRole();
+  const { isAdmin, isDemo, loading } = useAuthRole();
   const [weekISO, setWeekISO] = useState(toISO(startOfWeek()));
   const [params, setParams] = useSearchParams();
   const location = params.get("location") || "All";
@@ -29,27 +30,31 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     if (!weekISO) return;
-    const unsub = onSnapshot(collection(db, "weeks", weekISO, "reps"), (snap) => {
-      const normalize = (v) => (v ?? "").trim();
-      const locFilter = normalize(location);
-      const mgrFilter = normalize(manager);
-      const rows = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
+    const normalize = (v) => (v ?? "").trim();
+    const locFilter = normalize(location);
+    const mgrFilter = normalize(manager);
+    const buildLeaders = (rows) => {
+      const normalized = rows
         .filter((row) => {
           if (row.deleted) return false;
-          if (locFilter && locFilter !== "All" && normalize(row.team) !== locFilter) return false;
-          if (mgrFilter && mgrFilter !== "All" && normalize(row.manager) !== mgrFilter) return false;
+          if (locFilter && locFilter !== "All" && normalize(row.team) !== locFilter)
+            return false;
+          if (mgrFilter && mgrFilter !== "All" && normalize(row.manager) !== mgrFilter)
+            return false;
           return true;
         })
         .map((row) => {
-          const sales = Array.isArray(row.sales) && row.sales.length === 7 ? row.sales : Array(7).fill(0);
+          const sales =
+            Array.isArray(row.sales) && row.sales.length === 7
+              ? row.sales
+              : Array(7).fill(0);
           const weeklyTotal = sales.reduce((sum, v) => sum + clampNum(v), 0);
           return { ...row, sales, weeklyTotal };
         });
 
       // Deduplicate by salesId/name (same logic as WeeklyTable): keep the row with the higher weekly total
       const dedup = new Map();
-      rows.forEach((row) => {
+      normalized.forEach((row) => {
         const key = keyForRep(row);
         if (!key) return;
         const existing = dedup.get(key);
@@ -61,7 +66,8 @@ export default function LeaderboardPage() {
       const list = Array.from(dedup.values())
         .map((row) => {
           const goal = clampNum(row.salesGoal);
-          const pct = goal > 0 ? Math.min(100, Math.round((row.weeklyTotal / goal) * 100)) : 0;
+          const pct =
+            goal > 0 ? Math.min(100, Math.round((row.weeklyTotal / goal) * 100)) : 0;
           return {
             id: row.id,
             name: row.name || "Unnamed",
@@ -75,9 +81,18 @@ export default function LeaderboardPage() {
         .sort((a, b) => b.weeklyTotal - a.weeklyTotal || a.name.localeCompare(b.name));
 
       setLeaders(list);
+    };
+
+    if (isDemo) {
+      buildLeaders(getDemoWeekRows(weekISO));
+      return undefined;
+    }
+
+    const unsub = onSnapshot(collection(db, "weeks", weekISO, "reps"), (snap) => {
+      buildLeaders(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
     return () => unsub && unsub();
-  }, [weekISO, location, manager]);
+  }, [weekISO, location, manager, isDemo]);
 
   const ranked = useMemo(() => {
     let lastScore = null;
@@ -112,7 +127,7 @@ export default function LeaderboardPage() {
     setParams(next, { replace: true });
   };
 
-  if (loading) return <div className="p-8">Loading…</div>;
+  if (loading && !isDemo) return <div className="p-8">Loading…</div>;
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-white">
@@ -132,7 +147,7 @@ export default function LeaderboardPage() {
               setLocation={setLocation}
               manager={manager}
               setManager={setManager}
-              canChange={isAdmin}
+              canChange={isAdmin || isDemo}
             />
           </div>
         </div>

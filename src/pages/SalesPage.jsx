@@ -8,7 +8,7 @@ import WeeklyTable from "../components/WeeklyTable.jsx";
 import TeamFilter from "../components/TeamFilter.jsx";
 
 export default function SalesPage() {
-  const { isAdmin, permissions, loading } = useAuthRole(); // logged-in => true
+  const { isAdmin, isDemo, permissions, loading } = useAuthRole(); // logged-in => true
   const canEditSales = isAdmin && permissions.canEditSales;
   const [weekISO, setWeekISO] = useState(toISO(startOfWeek()));
   const [params, setParams] = useSearchParams();
@@ -41,7 +41,7 @@ export default function SalesPage() {
             setLocation={setLocation}
             manager={manager}
             setManager={setManager}
-            canChange={isAdmin}
+            canChange={isAdmin || isDemo}
           />
         </div>
       </div>
