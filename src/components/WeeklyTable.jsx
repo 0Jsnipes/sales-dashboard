@@ -38,6 +38,7 @@ export default function WeeklyTable({
   const [rows, setRows] = useState([]);
   const [openAdd, setOpenAdd] = useState(false);
   const [repToEdit, setRepToEdit] = useState(null); // <-- per-rep edit
+  const [highlightedRepId, setHighlightedRepId] = useState(null);
 
   // Header dates for Mon..Sun
   const headerDates = useMemo(() => {
@@ -435,9 +436,13 @@ export default function WeeklyTable({
               const goal = clampNum(r[goalKey]);
               const pct =
                 goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : 0;
+              const isHighlighted = highlightedRepId === r.id;
 
               return (
-                <tr key={`${r.id}-${r.name}`}>
+                <tr
+                  key={`${r.id}-${r.name}`}
+                  className={isHighlighted ? "!bg-slate-200" : undefined}
+                >
                   <td className="font-medium">{r.name}</td>
 
                   <td className="text-sm">{r.manager || ""}</td>
@@ -457,6 +462,8 @@ export default function WeeklyTable({
                         data-type="day"
                         data-rep={r.id}
                         data-day={i}
+                        onFocus={() => setHighlightedRepId(r.id)}
+                        onClick={() => setHighlightedRepId(r.id)}
                         onBlur={(e) => saveCell(r, i, e.target.value)}
                         onKeyDown={handleKeyNav}
                         />

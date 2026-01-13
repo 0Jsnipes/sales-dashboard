@@ -111,7 +111,9 @@ const buildDashboardData = (dates, weekMap) => {
 
   const lastDay = dailyData[dailyData.length - 1];
   const activeReps = lastDay
-    ? Object.values(lastDay.reps).filter((r) => (r?.knocks || 0) > 0).length
+    ? Object.values(lastDay.reps).filter(
+        (r) => (r?.knocks || 0) > 0 || (r?.sales || 0) > 0
+      ).length
     : 0;
   const avgDaysActive = reps.length
     ? reps.reduce((sum, rep) => sum + rep.daysActive, 0) / reps.length

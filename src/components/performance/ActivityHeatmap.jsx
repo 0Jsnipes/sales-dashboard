@@ -1,4 +1,7 @@
+import { useState } from "react";
+
 export default function ActivityHeatmap({ data, selectedRep, dateRange, colors }) {
+  const [highlightedRep, setHighlightedRep] = useState(null);
   const getDaysFromRange = () => {
     const numDays = dateRange === "7d" ? 7 : dateRange === "30d" ? 30 : 90;
     return data.dailyData.slice(-numDays);
@@ -71,7 +74,12 @@ export default function ActivityHeatmap({ data, selectedRep, dateRange, colors }
             </thead>
             <tbody>
               {repsToShow.map((rep) => (
-                <tr key={rep.id} className="border-t border-base-200">
+                <tr
+                  key={rep.id}
+                  className={`border-t border-base-200 ${
+                    highlightedRep === rep.id ? "bg-amber-50" : ""
+                  }`}
+                >
                   <td className="font-medium text-slate-900">{rep.name}</td>
                   {days.map((day, idx) => {
                     const repData = day.reps[rep.id];
@@ -82,8 +90,9 @@ export default function ActivityHeatmap({ data, selectedRep, dateRange, colors }
                       <td key={idx} className="min-w-[120px] p-2">
                         <div
                           style={{ backgroundColor: getCellColor(knocks, sales) }}
-                          className="rounded-xl p-3 text-center text-xs transition-transform hover:scale-[1.1]"
+                          className="cursor-pointer rounded-xl p-3 text-center text-xs transition-transform hover:scale-[1.1]"
                           title={`${knocks} knocks, ${sales} sales`}
+                          onClick={() => setHighlightedRep(rep.id)}
                         >
                           <div className="text-slate-900">{knocks} knocks</div>
                           <div className="text-green-700">{sales} sales</div>
@@ -120,7 +129,9 @@ export default function ActivityHeatmap({ data, selectedRep, dateRange, colors }
               {repsToShow.map((rep) => (
                 <div
                   key={rep.id}
-                  className="grid items-start gap-2"
+                  className={`grid items-start gap-2 rounded ${
+                    highlightedRep === rep.id ? "bg-amber-50/70" : ""
+                  }`}
                   style={{
                     gridTemplateColumns: `160px 36px repeat(${weeks.length}, minmax(0, 1fr))`
                   }}
@@ -153,11 +164,12 @@ export default function ActivityHeatmap({ data, selectedRep, dateRange, colors }
                         return (
                         <div
                           key={day.date}
-                            style={{ backgroundColor: getCellColor(knocks, sales) }}
-                            className="flex h-10 flex-col items-center justify-center rounded text-[9px] font-semibold text-slate-900 transition-transform hover:scale-[1.12]"
-                            title={`${formatWeekLabel(day.date)} ${formatDayLabel(
-                              day.date
+                          style={{ backgroundColor: getCellColor(knocks, sales) }}
+                          className="flex h-10 cursor-pointer flex-col items-center justify-center rounded text-[9px] font-semibold text-slate-900 transition-transform hover:scale-[1.12]"
+                          title={`${formatWeekLabel(day.date)} ${formatDayLabel(
+                            day.date
                           )}: ${knocks} knocks, ${sales} sales`}
+                          onClick={() => setHighlightedRep(rep.id)}
                         >
                           <span>{knocks}k</span>
                           <span className="text-green-700">{sales}s</span>

@@ -107,7 +107,7 @@ export default function RosterPage() {
   };
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!user) return;
     const unsub = onSnapshot(collection(db, "roster"), (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
@@ -124,7 +124,7 @@ export default function RosterPage() {
     });
 
     return () => unsub();
-  }, [isAdmin]);
+  }, [user]);
 
   useEffect(() => {
     setSelectedIds((prev) => {
@@ -136,7 +136,7 @@ export default function RosterPage() {
   }, [reps]);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!user) return;
     const unsub = onSnapshot(collection(db, "rosterOptions"), (snap) => {
       const grouped = { manager: [], location: [], program: [] };
       snap.forEach((d) => {
@@ -161,10 +161,10 @@ export default function RosterPage() {
     });
 
     return () => unsub();
-  }, [isAdmin]);
+  }, [user]);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!user) return;
     const unsub = onSnapshot(collection(db, "rosterTerminated"), (snap) => {
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -178,10 +178,10 @@ export default function RosterPage() {
       setTerminated(list);
     });
     return () => unsub();
-  }, [isAdmin]);
+  }, [user]);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!user) return;
     let cancelled = false;
 
     const fetchTotals = async () => {
@@ -214,7 +214,7 @@ export default function RosterPage() {
     return () => {
       cancelled = true;
     };
-  }, [isAdmin]);
+  }, [user]);
 
   const managers = useMemo(() => {
     const set = new Set(
@@ -1426,3 +1426,4 @@ export default function RosterPage() {
     </div>
   );
 }
+
