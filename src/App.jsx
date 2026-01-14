@@ -3,6 +3,7 @@ import { signOut } from "firebase/auth";
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { auth } from "./lib/firebase";
 import { useAuthRole } from "./hooks/useAuth.js";
+import { isEmailAllowed, performanceAllowlist, rosterViewAllowlist } from "./lib/access";
 import Navbar from "./components/NavBar.jsx";
 import LoginModal from "./components/LoginModal.jsx";
 import SalesPage from "./pages/SalesPage.jsx";
@@ -17,13 +18,11 @@ export default function App() {
   const { user, isAdmin, isSuperAdmin, loading, isDemo } = useAuthRole();
   const [navHidden, setNavHidden] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
-  const performanceAllowlist = [
-    "snipes1995@gmail.com",
-  ];
   const canViewPerformance =
-    (isAdmin && user?.email && performanceAllowlist.includes(user.email)) ||
+    (isAdmin && isEmailAllowed(performanceAllowlist, user?.email)) ||
     isDemo;
-  const showNav = isAdmin || isDemo;
+  const canViewRoster = isAdmin || isEmailAllowed(rosterViewAllowlist, user?.email);
+  const showNav = isAdmin || isDemo || canViewRoster;
 
   return (
     <div className="min-h-screen bg-white/30 backdrop-blur-xl backdrop-saturate-150 relative">
@@ -37,6 +36,7 @@ export default function App() {
             isSuperAdmin={isSuperAdmin}
             isDemo={isDemo}
             canViewPerformance={canViewPerformance}
+            canViewRoster={canViewRoster}
             onLogout={() => signOut(auth)}
             onOpenLogin={() => setLoginOpen(true)}
           />

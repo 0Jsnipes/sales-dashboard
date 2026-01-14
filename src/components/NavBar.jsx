@@ -10,12 +10,13 @@ export default function Navbar({
   isSuperAdmin,
   isDemo,
   canViewPerformance,
+  canViewRoster,
   onLogout,
   onOpenLogin,
 }) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const showNav = isAdmin || isDemo;
+  const showNav = isAdmin || isDemo || canViewRoster;
 
   // Add shadow/border after slight scroll
   useEffect(() => {
@@ -78,7 +79,7 @@ export default function Navbar({
                 <NavButton to="/performance">Performance</NavButton>
               ) : null}
               <NavButton to="/knocks">Knocks</NavButton>
-              {isAdmin ? <NavButton to="/roster">Roster</NavButton> : null}
+              {canViewRoster ? <NavButton to="/roster">Roster</NavButton> : null}
               {isAdmin ? <NavButton to="/onboarding">Onboarding</NavButton> : null}
               {isSuperAdmin ? (
                 <NavButton to="/settings">Settings</NavButton>
@@ -161,7 +162,7 @@ export default function Navbar({
               <NavButton to="/knocks" onClick={() => setMobileOpen(false)}>
                 Knocks
               </NavButton>
-              {isAdmin ? (
+              {canViewRoster ? (
                 <NavButton to="/roster" onClick={() => setMobileOpen(false)}>
                   Roster
                 </NavButton>

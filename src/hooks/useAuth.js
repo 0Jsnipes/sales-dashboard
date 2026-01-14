@@ -56,6 +56,22 @@ export function useAuthRole() {
         setHasAdminProfile(true);
         return;
       }
+
+      unsubAdmin = onSnapshot(doc(db, "adminUsers", u.uid), (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() || {};
+          setPermissions({
+            canEditSales: !!data.canEditSales,
+            canEditKnocks: !!data.canEditKnocks,
+            canEditRoster: !!data.canEditRoster,
+            canEditOnboarding: !!data.canEditOnboarding,
+          });
+          setHasAdminProfile(true);
+        } else {
+          setPermissions(EMPTY_PERMS);
+          setHasAdminProfile(false);
+        }
+      });
     });
 
     return () => {

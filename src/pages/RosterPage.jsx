@@ -11,11 +11,13 @@ import {
   collectionGroup,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
+import { isEmailAllowed, rosterViewAllowlist } from "../lib/access";
 import { useAuthRole } from "../hooks/useAuth";
 
 export default function RosterPage() {
   const { user, isAdmin, permissions, loading } = useAuthRole();
   const canEditRoster = isAdmin && permissions.canEditRoster;
+  const canViewRoster = isAdmin || isEmailAllowed(rosterViewAllowlist, user?.email);
 
   const [reps, setReps] = useState([]);
   const [options, setOptions] = useState({
@@ -818,7 +820,7 @@ export default function RosterPage() {
     return <div className="p-6 text-slate-600">Loading...</div>;
   }
 
-  if (!isAdmin) {
+  if (!canViewRoster) {
     return <div className="p-6 text-slate-600">Admin access required.</div>;
   }
 
