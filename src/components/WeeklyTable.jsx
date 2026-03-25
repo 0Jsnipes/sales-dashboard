@@ -26,6 +26,50 @@ function parseLocalISO(iso) {
 const clampNum = (v) =>
   Number.isFinite(+v) && +v >= 0 ? Math.floor(+v) : 0;
 
+const escapeCell = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+function DownloadIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      fill="none"
+      className="h-4 w-4"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M10 3.5v8" />
+      <path d="m6.75 8.75 3.25 3.25 3.25-3.25" />
+      <path d="M4 14.5h12" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      fill="none"
+      className="h-4 w-4"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M10 4.5v11" />
+      <path d="M4.5 10h11" />
+    </svg>
+  );
+}
+
 export default function WeeklyTable({
   base = "weeks",
   weekISO,
@@ -42,6 +86,7 @@ export default function WeeklyTable({
   const [openAdd, setOpenAdd] = useState(false);
   const [repToEdit, setRepToEdit] = useState(null); // <-- per-rep edit
   const [highlightedRepId, setHighlightedRepId] = useState(null);
+  const showHeaderActions = canEdit || rows.length > 0;
 
   // Header dates for Mon..Sun
   const headerDates = useMemo(() => {
@@ -403,6 +448,103 @@ export default function WeeklyTable({
     }
   };
 
+  const downloadExcel = () => {
+    const exportRows = rows.map((r) => {
+      const sales = Array.isArray(r.sales) ? r.sales : Array(7).fill(0);
+      const knocks = Array.isArray(r.knocks) ? r.knocks : Array(7).fill(0);
+      const salesTotal = sales.reduce((sum, v) => sum + clampNum(v), 0);
+      const knocksTotal = knocks.reduce((sum, v) => sum + clampNum(v), 0);
+
+      return {
+        name: r.name || "",
+        manager: r.manager || "",
+        team: r.team || "",
+        sales,
+        knocks,
+        salesTotal,
+        knocksTotal,
+        salesGoal: clampNum(r.salesGoal),
+        knocksGoal: clampNum(r.knocksGoal),
+      };
+    });
+
+    const headerCells = [
+      "Agent",
+      "Manager",
+      "Location",
+      ...DAYS.flatMap((day, i) => [
+        `${day} Sales (${fmtHeaderDate(headerDates[i])})`,
+        `${day} Knocks (${fmtHeaderDate(headerDates[i])})`,
+      ]),
+      "Weekly Sales Total",
+      "Weekly Knocks Total",
+      "Sales Goal",
+      "Knocks Goal",
+    ];
+
+    const bodyRows = exportRows
+      .map((row) => {
+        const dayCells = DAYS.flatMap((_, i) => [
+          `<td>${clampNum(row.sales[i])}</td>`,
+          `<td>${clampNum(row.knocks[i])}</td>`,
+        ]).join("");
+
+        return `
+          <tr>
+            <td>${escapeCell(row.name)}</td>
+            <td>${escapeCell(row.manager)}</td>
+            <td>${escapeCell(row.team)}</td>
+            ${dayCells}
+            <td>${row.salesTotal}</td>
+            <td>${row.knocksTotal}</td>
+            <td>${row.salesGoal}</td>
+            <td>${row.knocksGoal}</td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    const html = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office"
+            xmlns:x="urn:schemas-microsoft-com:office:excel"
+            xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+          <meta charset="utf-8" />
+          <!--[if gte mso 9]><xml>
+            <x:ExcelWorkbook>
+              <x:ExcelWorksheets>
+                <x:ExcelWorksheet>
+                  <x:Name>${escapeCell(`${title} ${weekISO}`)}</x:Name>
+                  <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+                </x:ExcelWorksheet>
+              </x:ExcelWorksheets>
+            </x:ExcelWorkbook>
+          </xml><![endif]-->
+        </head>
+        <body>
+          <table>
+            <thead>
+              <tr>${headerCells.map((cell) => `<th>${escapeCell(cell)}</th>`).join("")}</tr>
+            </thead>
+            <tbody>${bodyRows}</tbody>
+          </table>
+        </body>
+      </html>
+    `;
+
+    const blob = new Blob([html], {
+      type: "application/vnd.ms-excel;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `sales-and-knocks-${weekISO}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div
       className={`rounded-2xl bg-base-100 shadow ${
@@ -411,18 +553,29 @@ export default function WeeklyTable({
     >
       <div
         className={`flex items-center ${
-          canEdit ? "justify-between" : "justify-start"
+          showHeaderActions ? "justify-between" : "justify-start"
         } px-2 pt-4`}
       >
         <h2>{title}</h2>
-        {canEdit && (
-          <div className="flex gap-2">
+        {showHeaderActions && (
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50/90 p-1.5 shadow-sm">
             <button
-              className="btn btn-primary btn-sm"
-              onClick={() => setOpenAdd(true)}
+              className="btn btn-sm h-10 min-h-10 rounded-xl border-0 bg-white px-4 text-slate-700 shadow-sm transition hover:bg-slate-100 hover:text-slate-900"
+              onClick={downloadExcel}
             >
-              Add Reps
+              <DownloadIcon />
+              <span>Download Excel</span>
             </button>
+            {canEdit && <div className="hidden h-6 w-px bg-slate-200 sm:block" aria-hidden="true" />}
+            {canEdit && (
+              <button
+                className="btn btn-sm h-10 min-h-10 rounded-xl border-0 bg-slate-900 px-4 text-white shadow-sm transition hover:bg-slate-800"
+                onClick={() => setOpenAdd(true)}
+              >
+                <PlusIcon />
+                <span>Add Reps</span>
+              </button>
+            )}
           </div>
         )}
       </div>
