@@ -254,6 +254,11 @@ export default function RosterPage() {
   const allVisibleSelected =
     visibleReps.length > 0 &&
     visibleReps.every((r) => selectedIds.has(r.id));
+  const selectedRosterReps = useMemo(
+    () => reps.filter((r) => selectedIds.has(r.id)),
+    [reps, selectedIds]
+  );
+  const exportRosterReps = selectedRosterReps.length ? selectedRosterReps : visibleReps;
 
   const toggleSelectAllVisible = () => {
     setSelectedIds((prev) => {
@@ -666,15 +671,15 @@ export default function RosterPage() {
       return;
     }
 
-    const headerCells = ["Name", "Phone Number", "Email", "Social"];
-    const bodyRows = visibleReps
+    const headerCells = ["Name", "Email", "Social", "Phone number"];
+    const bodyRows = exportRosterReps
       .map(
         (rep) => `
           <tr>
             <td>${escapeCell(rep.name || "")}</td>
-            <td>${escapeCell(rep.phone || "")}</td>
             <td>${escapeCell(rep.email || "")}</td>
             <td>${escapeCell(rep.social || "")}</td>
+            <td>${escapeCell(rep.phone || "")}</td>
           </tr>
         `
       )
@@ -1157,6 +1162,11 @@ export default function RosterPage() {
               <path d="M5 21h14" />
             </svg>
             Export Excel
+            {selectedRosterReps.length > 0 ? (
+              <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-bold text-sky-700">
+                {selectedRosterReps.length}
+              </span>
+            ) : null}
           </button>
           {canEditRoster && !showTerminated && (
             <button
@@ -1443,7 +1453,7 @@ export default function RosterPage() {
               }`}
             >
               <tr>
-                {canEditRoster && !showTerminated && (
+                {!showTerminated && (
                   <th className="w-[44px] text-center">
                     <input
                       type="checkbox"
@@ -1480,7 +1490,7 @@ export default function RosterPage() {
                     key={r.id}
                     style={isEmailed ? { backgroundColor: "#fee2e2" } : undefined}
                   >
-                    {canEditRoster && !showTerminated && (
+                    {!showTerminated && (
                       <td className="text-center">
                         <input
                           type="checkbox"
