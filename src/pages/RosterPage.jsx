@@ -13,6 +13,7 @@ import {
 import { db } from "../lib/firebase";
 import { isEmailAllowed, rosterViewAllowlist } from "../lib/access";
 import { useAuthRole } from "../hooks/useAuth";
+import { extractRosterFieldsFromPdf } from "../lib/rosterPdf";
 
 export default function RosterPage() {
   const { user, isAdmin, permissions, loading } = useAuthRole();
@@ -37,6 +38,8 @@ export default function RosterPage() {
   const [phone, setPhone] = useState("");
   const [social, setSocial] = useState("");
   const [saving, setSaving] = useState(false);
+  const [parsingPdf, setParsingPdf] = useState(false);
+  const [pdfDropActive, setPdfDropActive] = useState(false);
   const [optionInputs, setOptionInputs] = useState({
     manager: "",
     location: "",
@@ -63,8 +66,16 @@ export default function RosterPage() {
   const [detailOpen, setDetailOpen] = useState(null);
   const [importing, setImporting] = useState(false);
   const [salesTotals, setSalesTotals] = useState({});
-  const [loadingSalesTotals, setLoadingSalesTotals] = useState(false);
-  const fileInputRef = useRef(null);
+  const [, setLoadingSalesTotals] = useState(false);
+  const csvFileInputRef = useRef(null);
+  const pdfFileInputRef = useRef(null);
+
+  const escapeCell = (value) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
 
   const normalizeProgram = (p) => {
     const val = (p || "").toLowerCase();
@@ -599,8 +610,111 @@ export default function RosterPage() {
       alert("Bulk import failed. Check console for details.");
     } finally {
       setImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (csvFileInputRef.current) csvFileInputRef.current.value = "";
     }
+  };
+
+  const handlePdfAutofill = async (file) => {
+    if (!file) return;
+    setParsingPdf(true);
+    setPdfDropActive(false);
+    try {
+      const extracted = await extractRosterFieldsFromPdf(file);
+      if (!extracted.name && !extracted.email && !extracted.phone && !extracted.social) {
+        alert("Couldn't find name, email, phone, or social in that PDF.");
+        return;
+      }
+
+      if (extracted.name) setName(extracted.name);
+      if (extracted.email) setEmail(extracted.email);
+      if (extracted.phone) setPhone(extracted.phone);
+      if (extracted.social) setSocial(extracted.social);
+    } catch (err) {
+      console.error("Failed to parse onboarding PDF", err);
+      alert("Failed to read that PDF. Check console for details.");
+    } finally {
+      setParsingPdf(false);
+      if (pdfFileInputRef.current) pdfFileInputRef.current.value = "";
+    }
+  };
+
+  const handlePdfDrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setPdfDropActive(false);
+    const file = [...(e.dataTransfer?.files || [])].find((item) =>
+      item.name?.toLowerCase().endsWith(".pdf")
+    );
+    if (file) {
+      await handlePdfAutofill(file);
+    }
+  };
+
+  const handleExportRoster = () => {
+    if (showTerminated) {
+      alert("Switch back to the active roster to export.");
+      return;
+    }
+    if (!visibleReps.length) {
+      alert("No roster reps to export.");
+      return;
+    }
+
+    const headerCells = ["Name", "Phone Number", "Email", "Social"];
+    const bodyRows = visibleReps
+      .map(
+        (rep) => `
+          <tr>
+            <td>${escapeCell(rep.name || "")}</td>
+            <td>${escapeCell(rep.phone || "")}</td>
+            <td>${escapeCell(rep.email || "")}</td>
+            <td>${escapeCell(rep.social || "")}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const html = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office"
+            xmlns:x="urn:schemas-microsoft-com:office:excel"
+            xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+          <meta charset="utf-8" />
+          <!--[if gte mso 9]><xml>
+            <x:ExcelWorkbook>
+              <x:ExcelWorksheets>
+                <x:ExcelWorksheet>
+                  <x:Name>${escapeCell("Roster Export")}</x:Name>
+                  <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+                </x:ExcelWorksheet>
+              </x:ExcelWorksheets>
+            </x:ExcelWorkbook>
+          </xml><![endif]-->
+        </head>
+        <body>
+          <table>
+            <thead>
+              <tr>${headerCells.map((cell) => `<th>${escapeCell(cell)}</th>`).join("")}</tr>
+            </thead>
+            <tbody>${bodyRows}</tbody>
+          </table>
+        </body>
+      </html>
+    `;
+
+    const blob = new Blob(["\ufeff", html], {
+      type: "application/vnd.ms-excel;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `roster-export-${dateStamp}.xls`;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
   };
 
   const formatTimestamp = (ts) => {
@@ -877,14 +991,53 @@ export default function RosterPage() {
           <span className="text-xs opacity-70">
             Showing {visibleReps.length} of {reps.length} reps
           </span>
+          <button
+            type="button"
+            className="inline-flex h-10 items-center gap-2 rounded-full border border-sky-200 bg-gradient-to-r from-sky-50 to-cyan-50 px-4 text-sm font-semibold text-sky-700 shadow-sm transition hover:border-sky-300 hover:from-sky-100 hover:to-cyan-100 hover:text-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={handleExportRoster}
+            disabled={showTerminated || visibleReps.length === 0}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              className="h-4 w-4"
+            >
+              <path d="M12 3v12" />
+              <path d="m7 10 5 5 5-5" />
+              <path d="M5 21h14" />
+            </svg>
+            Export Excel
+          </button>
           {canEditRoster && !showTerminated && (
             <button
               type="button"
-              className="btn btn-error btn-sm"
+              className="inline-flex h-10 items-center gap-2 rounded-full bg-gradient-to-r from-rose-500 to-red-500 px-4 text-sm font-semibold text-white shadow-sm transition hover:from-rose-600 hover:to-red-600 disabled:cursor-not-allowed disabled:from-rose-300 disabled:to-red-300"
               onClick={handleBulkDelete}
               disabled={selectedIds.size === 0 || saving}
             >
-              Delete Selected {selectedIds.size > 0 ? `(${selectedIds.size})` : ""}
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                className="h-4 w-4"
+              >
+                <path d="M4 7h16" />
+                <path d="M10 11v6" />
+                <path d="M14 11v6" />
+                <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12" />
+                <path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+              </svg>
+              <span>Delete Selected</span>
+              {selectedIds.size > 0 ? (
+                <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold text-white">
+                  {selectedIds.size}
+                </span>
+              ) : null}
             </button>
           )}
         </div>
@@ -902,12 +1055,6 @@ export default function RosterPage() {
               placeholder="Name *"
               value={name}
               onChange={(e) => setName(e.target.value)}
-            />
-            <input
-              className="input input-sm input-bordered w-full"
-              placeholder="Sales ID (optional)"
-              value={salesId}
-              onChange={(e) => setSalesId(e.target.value)}
             />
             <input
               className="input input-sm input-bordered w-full"
@@ -973,12 +1120,68 @@ export default function RosterPage() {
                 {saving ? "Saving..." : "Add"}
               </button>
             </div>
-
           </form>
 
           <div className="mt-4">
-            <div className="mb-4 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mb-4 grid gap-3 md:grid-cols-2">
+              <div
+                className={`rounded-xl border border-dashed p-3 transition ${
+                  pdfDropActive
+                    ? "border-primary bg-primary/10"
+                    : "border-slate-300 bg-slate-50/60"
+                }`}
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setPdfDropActive(true);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (!pdfDropActive) setPdfDropActive(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (e.currentTarget.contains(e.relatedTarget)) return;
+                  setPdfDropActive(false);
+                }}
+                onDrop={handlePdfDrop}
+              >
+                <div className="flex h-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-700">
+                      Autofill From Onboarding PDF
+                    </div>
+                    <div className="text-xs text-slate-600">
+                      Drag and drop a PDF here, or upload one to fill name, email, phone number,
+                      and social.
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={pdfFileInputRef}
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handlePdfAutofill(file);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm"
+                      onClick={() => pdfFileInputRef.current?.click()}
+                      disabled={parsingPdf}
+                    >
+                      {parsingPdf ? "Reading PDF..." : "Upload PDF"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-3">
+                <div className="flex h-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-sm font-semibold text-slate-700">Bulk CSV Import</div>
                   <div className="text-xs text-slate-600">
@@ -987,7 +1190,7 @@ export default function RosterPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <input
-                    ref={fileInputRef}
+                    ref={csvFileInputRef}
                     type="file"
                     accept=".csv,text/csv"
                     className="hidden"
@@ -999,13 +1202,14 @@ export default function RosterPage() {
                   <button
                     type="button"
                     className="btn btn-outline btn-sm"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => csvFileInputRef.current?.click()}
                     disabled={importing}
                   >
                     {importing ? "Importing..." : "Upload CSV"}
                   </button>
                 </div>
               </div>
+            </div>
             </div>
             <button
               type="button"
