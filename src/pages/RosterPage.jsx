@@ -14,6 +14,7 @@ import { db } from "../lib/firebase";
 import { isEmailAllowed, rosterViewAllowlist } from "../lib/access";
 import { useAuthRole } from "../hooks/useAuth";
 import { extractRosterFieldsFromPdf } from "../lib/rosterPdf";
+import Modal from "../components/Modal";
 
 export default function RosterPage() {
   const { user, isAdmin, permissions, loading } = useAuthRole();
@@ -67,6 +68,11 @@ export default function RosterPage() {
   const [importing, setImporting] = useState(false);
   const [salesTotals, setSalesTotals] = useState({});
   const [, setLoadingSalesTotals] = useState(false);
+  const [terminationEmailDraft, setTerminationEmailDraft] = useState({
+    rep: null,
+    lastSaleDate: "",
+    loading: false,
+  });
   const csvFileInputRef = useRef(null);
   const pdfFileInputRef = useRef(null);
 
@@ -755,6 +761,14 @@ export default function RosterPage() {
     });
   };
 
+  const formatInputDate = (dateObj) => {
+    if (!dateObj || Number.isNaN(dateObj.getTime?.())) return "";
+    const year = dateObj.getFullYear();
+    const month = String(dateObj.getMonth() + 1).padStart(2, "0");
+    const day = String(dateObj.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
   const addDays = (dateObj, days) => {
     const next = new Date(dateObj);
     next.setDate(next.getDate() + days);
@@ -775,18 +789,101 @@ export default function RosterPage() {
     return trimmed.split(/\s+/)[0] || "";
   };
 
+  const normalizeRepName = (value) =>
+    (value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const getNameParts = (value) => normalizeRepName(value).split(" ").filter(Boolean);
+
+  const stripNameSpaces = (value) => normalizeRepName(value).replace(/\s+/g, "");
+
+  const getRepNameMatchScore = (targetName, candidateName) => {
+    const targetNormalized = normalizeRepName(targetName);
+    const candidateNormalized = normalizeRepName(candidateName);
+    if (!targetNormalized || !candidateNormalized) return 0;
+    if (targetNormalized === candidateNormalized) return 4;
+
+    const targetCompact = stripNameSpaces(targetName);
+    const candidateCompact = stripNameSpaces(candidateName);
+    if (targetCompact && candidateCompact && targetCompact === candidateCompact) return 4;
+
+    const targetParts = getNameParts(targetName);
+    const candidateParts = getNameParts(candidateName);
+    if (!targetParts.length || !candidateParts.length) return 0;
+
+    const targetFirst = targetParts[0];
+    const targetLast = targetParts[targetParts.length - 1];
+    const candidateFirst = candidateParts[0];
+    const candidateLast = candidateParts[candidateParts.length - 1];
+
+    if (
+      targetParts.length >= 2 &&
+      candidateParts.length >= 2 &&
+      targetFirst === candidateFirst &&
+      targetLast === candidateLast
+    ) {
+      return 3;
+    }
+
+    if (
+      targetParts.length >= 2 &&
+      candidateParts.length >= 2 &&
+      targetFirst === candidateLast &&
+      targetLast === candidateFirst
+    ) {
+      return 3;
+    }
+
+    if (
+      targetParts.length >= 2 &&
+      candidateParts.length >= 2 &&
+      candidateFirst.startsWith(targetFirst) &&
+      candidateLast.startsWith(targetLast)
+    ) {
+      return 3;
+    }
+
+    if (
+      targetNormalized.includes(candidateNormalized) ||
+      candidateNormalized.includes(targetNormalized)
+    ) {
+      return 2;
+    }
+
+    const targetSet = new Set(targetParts);
+    const sharedParts = candidateParts.filter((part) => targetSet.has(part));
+    if (sharedParts.length >= 2) return 1;
+
+    const sharedPrefixParts = candidateParts.filter((part) =>
+      targetParts.some(
+        (targetPart) =>
+          part.startsWith(targetPart) ||
+          targetPart.startsWith(part)
+      )
+    );
+    if (sharedPrefixParts.length >= 2) return 1;
+
+    return 0;
+  };
+
   const findLastSaleDateForRep = async (rep) => {
-    const targetName = (rep?.name || "").trim().toLowerCase();
+    const targetName = (rep?.name || "").trim();
     if (!targetName) return null;
 
     const snap = await getDocs(collectionGroup(db, "reps"));
     let latest = null;
+    let bestMatchScore = 0;
 
     snap.forEach((d) => {
       const path = d.ref.path || "";
       const data = d.data() || {};
-      const name = (data.name || "").trim().toLowerCase();
-      if (!name || name !== targetName) return;
+      const matchScore = getRepNameMatchScore(targetName, data.name || "");
+      if (!matchScore) return;
+
+      let matchedDate = null;
 
       if (path.startsWith("days/")) {
         const parts = path.split("/");
@@ -794,13 +891,10 @@ export default function RosterPage() {
         if (!dayId) return;
         const salesVal = Number(data.sales);
         if (!Number.isFinite(salesVal) || salesVal <= 0) return;
-        const dateObj = parseLocalISODate(dayId);
-        if (!dateObj) return;
-        if (!latest || dateObj > latest) latest = dateObj;
-        return;
+        matchedDate = parseLocalISODate(dayId);
       }
 
-      if (path.startsWith("weeks/")) {
+      if (!matchedDate && path.startsWith("weeks/")) {
         const parts = path.split("/");
         const weekId = parts[1];
         const weekStart = parseLocalISODate(weekId);
@@ -809,10 +903,18 @@ export default function RosterPage() {
         for (let i = salesArr.length - 1; i >= 0; i -= 1) {
           const val = Number(salesArr[i]);
           if (!Number.isFinite(val) || val <= 0) continue;
-          const dateObj = addDays(weekStart, i);
-          if (!latest || dateObj > latest) latest = dateObj;
+          matchedDate = addDays(weekStart, i);
           break;
         }
+      }
+
+      if (!matchedDate) return;
+      if (
+        matchScore > bestMatchScore ||
+        (matchScore === bestMatchScore && (!latest || matchedDate > latest))
+      ) {
+        bestMatchScore = matchScore;
+        latest = matchedDate;
       }
     });
 
@@ -873,41 +975,86 @@ export default function RosterPage() {
     return { subject, body };
   };
 
+  const composeTerminationEmail = async (rep, lastSaleDateValue) => {
+    const to = (rep?.email || "").trim();
+    if (!to) {
+      alert("No email address is on file for this rep.");
+      return;
+    }
+    const lastSaleDateObj = parseLocalISODate(lastSaleDateValue);
+    const { subject, body } = buildTerminationEmail(rep, lastSaleDateObj);
+    const cc = [
+      "alex@abenergymarketing.com",
+      "cj@abenergymarketing.com",
+      "kristin@abenergymarketing.com",
+      "j.sexton@abenergymarketing.com",
+    ].join(",");
+    const mailto = `mailto:${to}?cc=${encodeURIComponent(
+      cc
+    )}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    if (rep?.id) {
+      try {
+        await updateDoc(doc(db, "rosterTerminated", rep.id), {
+          terminationEmailSentAt: serverTimestamp(),
+          terminationEmailSentBy: user?.uid || null,
+        });
+      } catch (err) {
+        console.error("Failed to mark termination email sent", err);
+      }
+    }
+    window.location.href = mailto;
+  };
+
   const handleSendTerminationEmail = (rep) => {
     const to = (rep?.email || "").trim();
     if (!to) {
       alert("No email address is on file for this rep.");
       return;
     }
+
+    const existingDate =
+      formatInputDate(parseLocalISODate(rep?.lastSaleDate || rep?.lastSale || "")) || "";
+    setTerminationEmailDraft({
+      rep,
+      lastSaleDate: existingDate,
+      loading: true,
+    });
+
     (async () => {
-      let lastSaleDateObj = null;
+      let suggestedDate = existingDate;
       try {
-        lastSaleDateObj = await findLastSaleDateForRep(rep);
+        const lastSaleDateObj = await findLastSaleDateForRep(rep);
+        if (lastSaleDateObj) {
+          suggestedDate = formatInputDate(lastSaleDateObj);
+        }
       } catch (err) {
         console.error("Failed to load last sale date", err);
+      } finally {
+        setTerminationEmailDraft((prev) => {
+          if (prev.rep?.id !== rep?.id) return prev;
+          return {
+            ...prev,
+            lastSaleDate: prev.lastSaleDate || suggestedDate,
+            loading: false,
+          };
+        });
       }
-      const { subject, body } = buildTerminationEmail(rep, lastSaleDateObj);
-      const cc = [
-        "alex@abenergymarketing.com",
-        "cj@abenergymarketing.com",
-        "kristin@abenergymarketing.com",
-        "j.sexton@abenergymarketing.com",
-      ].join(",");
-      const mailto = `mailto:${to}?cc=${encodeURIComponent(
-        cc
-      )}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-      if (rep?.id) {
-        try {
-          await updateDoc(doc(db, "rosterTerminated", rep.id), {
-            terminationEmailSentAt: serverTimestamp(),
-            terminationEmailSentBy: user?.uid || null,
-          });
-        } catch (err) {
-          console.error("Failed to mark termination email sent", err);
-        }
-      }
-      window.location.href = mailto;
     })();
+  };
+
+  const closeTerminationEmailDraft = () => {
+    setTerminationEmailDraft({
+      rep: null,
+      lastSaleDate: "",
+      loading: false,
+    });
+  };
+
+  const handleConfirmTerminationEmail = async () => {
+    const rep = terminationEmailDraft.rep;
+    if (!rep) return;
+    await composeTerminationEmail(rep, terminationEmailDraft.lastSaleDate);
+    closeTerminationEmailDraft();
   };
 
   const tierColors = ["bg-emerald-500", "bg-sky-500", "bg-purple-500", "bg-amber-500", "bg-pink-500"];
@@ -1629,6 +1776,59 @@ export default function RosterPage() {
           </table>
         </div>
       </div>
+      <Modal
+        open={!!terminationEmailDraft.rep}
+        onClose={closeTerminationEmailDraft}
+        maxWidth="max-w-md bg-white"
+      >
+        <h3 className="text-lg font-semibold text-slate-900">Draft Termination Email</h3>
+        <p className="mt-2 text-sm text-slate-600">
+          Select the last sale date for{" "}
+          <span className="font-medium text-slate-800">
+            {terminationEmailDraft.rep?.name || "this rep"}
+          </span>
+          .
+        </p>
+        <div className="mt-5">
+          <label className="block text-sm font-medium text-slate-700" htmlFor="last-sale-date">
+            Last sale date
+          </label>
+          <input
+            id="last-sale-date"
+            type="date"
+            className="input input-bordered mt-2 w-full"
+            value={terminationEmailDraft.lastSaleDate}
+            onChange={(e) =>
+              setTerminationEmailDraft((prev) => ({
+                ...prev,
+                lastSaleDate: e.target.value,
+              }))
+            }
+          />
+          <p className="mt-2 text-xs text-slate-500">
+            {terminationEmailDraft.loading
+              ? "Checking sales history for a suggested date..."
+              : "Use the suggested date if it looks right, or choose the date manually."}
+          </p>
+        </div>
+        <div className="mt-6 flex justify-end gap-2">
+          <button
+            className="btn btn-ghost"
+            type="button"
+            onClick={closeTerminationEmailDraft}
+          >
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary"
+            type="button"
+            onClick={handleConfirmTerminationEmail}
+            disabled={!terminationEmailDraft.lastSaleDate}
+          >
+            Open Email
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }
