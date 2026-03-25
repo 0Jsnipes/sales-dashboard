@@ -266,13 +266,20 @@ export default function WeeklyTable({
   const colTotals = useMemo(() => {
     const dayTotals = Array(7).fill(0);
     let weekTotal = 0;
+    let goalTotal = 0;
     rows.forEach((r) => {
       const arr = r[metricKey] || Array(7).fill(0);
       arr.forEach((v, i) => (dayTotals[i] += clampNum(v)));
       weekTotal += arr.reduce((a, b) => a + clampNum(b), 0);
+      goalTotal += clampNum(r[goalKey]);
     });
-    return { dayTotals, weekTotal };
-  }, [rows, metricKey]);
+    return { dayTotals, weekTotal, goalTotal };
+  }, [rows, metricKey, goalKey]);
+
+  const totalsPct =
+    colTotals.goalTotal > 0
+      ? Math.min(100, Math.round((colTotals.weekTotal / colTotals.goalTotal) * 100))
+      : 0;
 
   // Log per-day totals for the current week when data changes
   useEffect(() => {
@@ -744,9 +751,20 @@ export default function WeeklyTable({
               <th className={`text-center ${!canEdit ? "px-5" : ""}`}>
                 {colTotals.weekTotal}
               </th>
-              <th className={`text-center ${!canEdit ? "px-5" : ""}`}>—</th>
-              <th>—</th>
-              <th>—</th>
+              <th className={`text-center ${!canEdit ? "px-5" : ""}`}>
+                {colTotals.goalTotal}
+              </th>
+              <th>
+                <div className="flex items-center gap-2">
+                  <progress
+                    className="progress progress-secondary w-28"
+                    value={totalsPct}
+                    max="100"
+                  />
+                  <span className="w-10 text-xs opacity-70">{totalsPct}%</span>
+                </div>
+              </th>
+              <th>-</th>
               {canEdit && <th />}
             </tr>
           </tfoot>

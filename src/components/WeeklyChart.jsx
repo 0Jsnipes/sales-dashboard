@@ -33,6 +33,7 @@ const keyForRep = (rep) => {
  *  - metricKey:  "sales" | "knocks"
  *  - title:      string
  *  - teamFilter: "All" | team
+ *  - managerFilter: "All" | manager
  */
 export default function WeeklyChart({
   base = "weeks",
@@ -40,6 +41,7 @@ export default function WeeklyChart({
   metricKey = "sales",
   title = "Weekly Sales",
   teamFilter = "All",
+  managerFilter = "All",
 }) {
   const isDemo = useDemoMode();
   const [rows, setRows] = useState(null); // null = loading
@@ -48,12 +50,19 @@ export default function WeeklyChart({
     if (isDemo) {
       const normalize = (v) => (v ?? "").trim();
       const teamFilterNorm = normalize(teamFilter);
+      const managerFilterNorm = normalize(managerFilter);
       const demoRows = getDemoWeekRows(weekISO)
         .filter((v) => {
           if (
             teamFilterNorm &&
             teamFilterNorm !== "All" &&
             normalize(v.team) !== teamFilterNorm
+          )
+            return false;
+          if (
+            managerFilterNorm &&
+            managerFilterNorm !== "All" &&
+            normalize(v.manager) !== managerFilterNorm
           )
             return false;
           return true;
@@ -95,6 +104,7 @@ export default function WeeklyChart({
     return onSnapshot(q, (s) => {
       const normalize = (v) => (v ?? "").trim();
       const teamFilterNorm = normalize(teamFilter);
+      const managerFilterNorm = normalize(managerFilter);
       const rows = s.docs
         .map((d) => ({ id: d.id, ...d.data() }))
         .filter((v) => {
@@ -103,6 +113,12 @@ export default function WeeklyChart({
             teamFilterNorm &&
             teamFilterNorm !== "All" &&
             normalize(v.team) !== teamFilterNorm
+          )
+            return false;
+          if (
+            managerFilterNorm &&
+            managerFilterNorm !== "All" &&
+            normalize(v.manager) !== managerFilterNorm
           )
             return false;
           return true;
@@ -137,7 +153,7 @@ export default function WeeklyChart({
 
       setRows(data);
     });
-  }, [base, weekISO, metricKey, teamFilter, isDemo]);
+  }, [base, weekISO, metricKey, teamFilter, managerFilter, isDemo]);
 
   const maxY = useMemo(() => {
     if (!rows || rows.length === 0) return 5;

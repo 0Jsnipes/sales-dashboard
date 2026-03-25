@@ -52,6 +52,7 @@ export default function SalesPage() {
         metricKey="sales"
         title="Weekly Sales"
         teamFilter={location}
+        managerFilter={manager}
       />
       <WeeklyTable
         base="weeks"

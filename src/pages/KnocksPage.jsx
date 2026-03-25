@@ -53,6 +53,7 @@ export default function KnocksPage() {
         metricKey="knocks"
         title="Weekly Knocks"
         teamFilter={location}
+        managerFilter={manager}
       />
       <WeeklyTable
         base="weeks"
