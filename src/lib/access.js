@@ -6,6 +6,7 @@ export const performanceAllowlist = new Set([
 export const rosterViewAllowlist = new Set([
   "snipes1995@gmail.com",
   "j.sexton@abenergymarketing.com",
+  "Kristin@abenergymarketing.com"
 ]);
 
 export const isEmailAllowed = (allowlist, email) => {
