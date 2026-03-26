@@ -1201,8 +1201,17 @@ export default function RosterPage() {
       </div>
 
       {canEditRoster && (
-        <div className="mb-6 rounded-2xl bg-base-100 p-4 shadow">
-          <h2 className="mb-3 text-sm font-semibold">Add Rep to Roster</h2>
+        <div className="mb-6 rounded-3xl border border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-cyan-50/50 p-5 shadow-[0_18px_50px_-24px_rgba(14,116,144,0.45)]">
+          <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-800">
+                Add Rep to Roster
+              </h2>
+              <p className="text-xs text-slate-500">
+                Create a rep manually or use the import tools below.
+              </p>
+            </div>
+          </div>
           <form
             onSubmit={handleAddRep}
             className="grid grid-cols-1 gap-3 md:grid-cols-5"
@@ -1255,26 +1264,36 @@ export default function RosterPage() {
                 </option>
               ))}
             </select>
-            <div className="flex items-center gap-2">
-              <select
-                className="select select-sm select-bordered w-full"
-                value={program}
-                onChange={(e) => setProgram(e.target.value)}
-              >
-                <option value="">Program</option>
-                {options.program.map((opt) => (
-                  <option key={opt.id} value={opt.value}>
-                    {opt.value}
-                  </option>
-                ))}
-              </select>
+            <select
+              className="select select-sm select-bordered w-full"
+              value={program}
+              onChange={(e) => setProgram(e.target.value)}
+            >
+              <option value="">Program</option>
+              {options.program.map((opt) => (
+                <option key={opt.id} value={opt.value}>
+                  {opt.value}
+                </option>
+              ))}
+            </select>
+            <div className="flex justify-end pt-2 md:col-span-5">
               <button
-                type="button"
-                onClick={handleAddRep}
-                className="btn btn-primary btn-sm whitespace-nowrap"
+                type="submit"
+                className="inline-flex min-w-[180px] items-center justify-center gap-2 rounded-full border border-cyan-400/40 bg-gradient-to-r from-sky-500 via-cyan-500 to-emerald-500 px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_30px_-16px_rgba(6,182,212,0.9)] transition hover:-translate-y-0.5 hover:from-sky-600 hover:via-cyan-500 hover:to-emerald-600 hover:shadow-[0_20px_40px_-20px_rgba(14,165,233,0.95)] disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={saving}
               >
-                {saving ? "Saving..." : "Add"}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="h-4 w-4"
+                >
+                  <path d="M12 5v14" />
+                  <path d="M5 12h14" />
+                </svg>
+                {saving ? "Saving rep..." : "Add To Roster"}
               </button>
             </div>
           </form>
@@ -1370,9 +1389,20 @@ export default function RosterPage() {
             </div>
             <button
               type="button"
-              className="btn btn-ghost btn-sm"
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700"
               onClick={() => setShowOptionEditor((v) => !v)}
             >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                className="h-4 w-4"
+              >
+                <path d="M12 5v14" />
+                <path d="M5 12h14" />
+              </svg>
               {showOptionEditor ? "Hide add boxes" : "Add manager / location / program"}
             </button>
 
@@ -1381,14 +1411,14 @@ export default function RosterPage() {
                 {optionTypes.map((type) => (
                   <div
                     key={type}
-                    className="rounded-xl border border-base-300 p-3 shadow-sm"
+                    className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-[0_12px_28px_-24px_rgba(15,23,42,0.7)]"
                   >
-                    <div className="mb-2 text-xs font-semibold uppercase text-slate-600">
+                    <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                       {type}
                     </div>
-                    <div className="mb-2 flex items-center gap-2">
+                    <div className="mb-3 flex items-center gap-2">
                       <input
-                        className="input input-xs input-bordered w-full"
+                        className="input input-sm input-bordered w-full border-slate-200 bg-slate-50/70"
                         placeholder={`Add ${type}`}
                         value={optionInputs[type]}
                         onChange={(e) =>
@@ -1405,7 +1435,7 @@ export default function RosterPage() {
                         }}
                       />
                       <button
-                        className="btn btn-primary btn-xs"
+                        className="inline-flex items-center justify-center rounded-full border border-cyan-400/40 bg-gradient-to-r from-sky-500 to-cyan-500 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white shadow-[0_12px_24px_-18px_rgba(14,165,233,0.95)] transition hover:from-sky-600 hover:to-cyan-600"
                         type="button"
                         onClick={() => handleAddOption(type)}
                       >
@@ -1416,11 +1446,11 @@ export default function RosterPage() {
                       {options[type].map((opt) => (
                         <div
                           key={opt.id}
-                          className="flex items-center justify-between rounded bg-base-200 px-2 py-1"
+                          className="flex items-center justify-between rounded-xl bg-slate-100 px-3 py-2"
                         >
                           <span className="truncate">{opt.value}</span>
                           <button
-                            className="btn btn-ghost btn-xs text-error"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-full text-rose-500 transition hover:bg-rose-50 hover:text-rose-600"
                             onClick={() => handleDeleteOption(opt.id, type)}
                             type="button"
                           >
