@@ -83,6 +83,21 @@ export default function RosterPage() {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
 
+  const splitName = (fullName) => {
+    const parts = String(fullName ?? "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+
+    if (!parts.length) return { firstName: "", lastName: "" };
+    if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+
+    return {
+      firstName: parts[0],
+      lastName: parts.slice(1).join(" "),
+    };
+  };
+
   const normalizeProgram = (p) => {
     const val = (p || "").toLowerCase();
     if (val.includes("att") || val.includes("at&t")) return "att";
@@ -671,21 +686,32 @@ export default function RosterPage() {
       return;
     }
 
-    const headerCells = ["Name", "Email", "Social", "Phone number"];
+    const todayDate = new Date().toISOString().slice(0, 10);
+    const headerCells = [
+      "First Name",
+      "Last Name",
+      "Email",
+      "Today's Date",
+      "Social",
+      "Phone Number",
+    ];
     const bodyRows = exportRosterReps
-      .map(
-        (rep) => `
+      .map((rep) => {
+        const { firstName, lastName } = splitName(rep.name);
+        return `
           <tr>
-            <td>${escapeCell(rep.name || "")}</td>
+            <td>${escapeCell(firstName)}</td>
+            <td>${escapeCell(lastName)}</td>
             <td>${escapeCell(rep.email || "")}</td>
+            <td>${escapeCell(todayDate)}</td>
             <td>${escapeCell(rep.social || "")}</td>
             <td>${escapeCell(rep.phone || "")}</td>
           </tr>
         `
-      )
+      })
       .join("");
 
-    const dateStamp = new Date().toISOString().slice(0, 10);
+    const dateStamp = todayDate;
     const html = `
       <html xmlns:o="urn:schemas-microsoft-com:office:office"
             xmlns:x="urn:schemas-microsoft-com:office:excel"
