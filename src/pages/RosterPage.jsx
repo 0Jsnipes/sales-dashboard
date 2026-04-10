@@ -783,13 +783,28 @@ export default function RosterPage() {
     return null;
   };
 
-  const formatDate = (dateObj) => {
-    if (!dateObj) return "N/A";
-    return dateObj.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+  const getOrdinalSuffix = (day) => {
+    const mod100 = day % 100;
+    if (mod100 >= 11 && mod100 <= 13) return "th";
+    switch (day % 10) {
+      case 1:
+        return "st";
+      case 2:
+        return "nd";
+      case 3:
+        return "rd";
+      default:
+        return "th";
+    }
+  };
+
+  const formatTerminationEmailDate = (dateObj) => {
+    if (!dateObj || Number.isNaN(dateObj.getTime?.())) return "N/A";
+    const weekday = dateObj.toLocaleDateString("en-US", { weekday: "long" });
+    const month = dateObj.toLocaleDateString("en-US", { month: "long" });
+    const day = dateObj.getDate();
+    const year = dateObj.getFullYear();
+    return `${weekday} , ${month} ${day}${getOrdinalSuffix(day)}, ${year}`;
   };
 
   const formatInputDate = (dateObj) => {
@@ -955,42 +970,58 @@ export default function RosterPage() {
   const buildTerminationEmail = (rep, lastSaleOverride) => {
     const agentName = (rep?.name || "").trim() || "the agent";
     const firstName = getFirstName(agentName) || agentName;
-    const terminationDate = rep?.deletedAt?.toDate?.()
-      ? formatDate(rep.deletedAt.toDate())
-      : "N/A";
+    const terminationDate = formatTerminationEmailDate(new Date());
     const lastSaleRaw = rep?.lastSaleDate || rep?.lastSale || "";
     const lastSaleDateObj = lastSaleOverride || parseLocalISODate(lastSaleRaw);
     const lastSaleDisplay = lastSaleDateObj
-      ? formatDate(lastSaleDateObj)
+      ? formatTerminationEmailDate(lastSaleDateObj)
       : (typeof lastSaleRaw === "string" && lastSaleRaw.trim()
         ? lastSaleRaw.trim()
         : "N/A");
-    const processingDateObj = lastSaleDateObj
+    const fiberProcessingDateObj = lastSaleDateObj
       ? addDays(lastSaleDateObj, 90)
       : null;
-    const processingDateDisplay = processingDateObj
-      ? formatDate(processingDateObj)
+    const fiberProcessingDateDisplay = fiberProcessingDateObj
+      ? formatTerminationEmailDate(fiberProcessingDateObj)
       : "N/A";
-    const fundingDateObj = processingDateObj
-      ? nextWednesday(processingDateObj)
+    const dtvProcessingDateObj = lastSaleDateObj
+      ? addDays(lastSaleDateObj, 180)
       : null;
-    const fundingDateDisplay = fundingDateObj ? formatDate(fundingDateObj) : "N/A";
+    const dtvProcessingDateDisplay = dtvProcessingDateObj
+      ? formatTerminationEmailDate(dtvProcessingDateObj)
+      : "N/A";
+    const fiberFundingDateObj = fiberProcessingDateObj
+      ? nextWednesday(fiberProcessingDateObj)
+      : null;
+    const fiberFundingDateDisplay = fiberFundingDateObj
+      ? formatTerminationEmailDate(fiberFundingDateObj)
+      : "N/A";
+    const dtvFundingDateObj = dtvProcessingDateObj
+      ? nextWednesday(dtvProcessingDateObj)
+      : null;
+    const dtvFundingDateDisplay = dtvFundingDateObj
+      ? formatTerminationEmailDate(dtvFundingDateObj)
+      : "N/A";
 
     const subject = `Notification of Official Contract Termination - ${agentName}`;
     const bodyLines = [
       "Hello,",
       "",
       `This email is to make official the separation between ${agentName} and AB Marketing LLC effective ${terminationDate}.`,
+      "",
+      "Please make turning in any property of AB Marketing a priority.",
     ];
 
     if (lastSaleDateObj) {
       bodyLines.push(
-        "Please make turning in any property of AB Marketing a priority.",
-        "As stated, and signed in the contract when onboarding, your remaining commission checks will be held until the end of the stated chargeback period (90 days after last sales date).",
+        "",
+        "",
+        "As stated, and signed in the contract when onboarding, your remaining commission checks will be held until the end of the stated chargeback period (90 days after last sales date for ATT Fiber and 180 days for DTV).",
         `${firstName}'s last sale date was ${lastSaleDisplay}.`,
-        `The final commission checks will be available to be processed on ${processingDateDisplay}.`,
-        `After deducting any chargebacks that may come through during that time, the payroll will be available to be funded on ${fundingDateDisplay}.`,
-        `Please reach out to Kristin Patterson (kristin@abenergymarketing.com) prior to ${fundingDateDisplay} to request your exit hold be released.`
+        `The final commission checks will be available to be processed on ${fiberProcessingDateDisplay} for fiber and ${dtvProcessingDateDisplay} for DTV.`,
+        `After deducting any chargebacks that may come through during that time, the payroll will be available to be funded on ${fiberFundingDateDisplay} for fiber and ${dtvFundingDateDisplay} for DTV.`,
+        "",
+        `Please reach out to Kristin Patterson (kristin@abenergymarketing.com) prior to ${fiberFundingDateDisplay} for Fiber and ${dtvFundingDateDisplay} for DTV to request your exit hold be released for each program.`
       );
     }
 
