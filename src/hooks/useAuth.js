@@ -4,7 +4,16 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { useDemoMode } from "./useDemoMode";
 
-const SUPER_ADMIN_EMAIL = ["snipes1995@gmail.com", "kunyealogray@gmail.com","j.sexton@abenergymarketing.com"];
+const SUPER_ADMIN_EMAILS = new Set([
+  "snipes1995@gmail.com",
+  "kunyealogray@gmail.com",
+  "j.sexton@abenergymarketing.com",
+]);
+
+function isSuperAdminEmail(email) {
+  return SUPER_ADMIN_EMAILS.has((email || "").trim().toLowerCase());
+}
+
 const EMPTY_PERMS = {
   canEditSales: false,
   canEditKnocks: false,
@@ -48,8 +57,7 @@ export function useAuthRole() {
 
       if (!u) return;
 
-      const email = (u.email || "").toLowerCase();
-      const isSuperAdmin = email === SUPER_ADMIN_EMAIL;
+      const isSuperAdmin = isSuperAdminEmail(u.email);
 
       if (isSuperAdmin) {
         setPermissions(ALL_PERMS);
@@ -80,8 +88,7 @@ export function useAuthRole() {
     };
   }, [isDemo]);
 
-  const isSuperAdmin =
-    !!user?.email && user.email.toLowerCase() === SUPER_ADMIN_EMAIL;
+  const isSuperAdmin = isSuperAdminEmail(user?.email);
   const isAdmin = !!user && (isSuperAdmin || hasAdminProfile);
 
   return {
