@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { useDemoMode } from "./useDemoMode";
 
@@ -12,6 +12,30 @@ const SUPER_ADMIN_EMAILS = new Set([
 
 function isSuperAdminEmail(email) {
   return SUPER_ADMIN_EMAILS.has((email || "").trim().toLowerCase());
+}
+
+async function ensureSuperAdminProfile(user) {
+  if (!user?.uid || !isSuperAdminEmail(user.email)) return;
+
+  try {
+    await setDoc(
+      doc(db, "adminUsers", user.uid),
+      {
+        uid: user.uid,
+        email: (user.email || "").trim().toLowerCase(),
+        canEditSales: true,
+        canEditKnocks: true,
+        canEditRoster: true,
+        canEditOnboarding: true,
+        isSuperAdmin: true,
+        updatedAt: serverTimestamp(),
+        updatedBy: user.uid,
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    console.error("Failed to ensure super-admin profile", error);
+  }
 }
 
 const EMPTY_PERMS = {
@@ -44,6 +68,7 @@ export function useAuthRole() {
     }
 
     let unsubAdmin = null;
+    let isActive = true;
 
     const unsub = onAuthStateChanged(auth, (u) => {
       if (unsubAdmin) {
@@ -51,20 +76,30 @@ export function useAuthRole() {
         unsubAdmin = null;
       }
       setUser(u);
-      setLoading(false);
       setPermissions(EMPTY_PERMS);
       setHasAdminProfile(false);
 
-      if (!u) return;
+      if (!u) {
+        setLoading(false);
+        return;
+      }
 
       const isSuperAdmin = isSuperAdminEmail(u.email);
 
       if (isSuperAdmin) {
+        setLoading(true);
         setPermissions(ALL_PERMS);
         setHasAdminProfile(true);
+        const bootstrap = ensureSuperAdminProfile(u);
+        void bootstrap.finally(() => {
+          if (isActive && auth.currentUser?.uid === u.uid) {
+            setLoading(false);
+          }
+        });
         return;
       }
 
+      setLoading(false);
       unsubAdmin = onSnapshot(doc(db, "adminUsers", u.uid), (snap) => {
         if (snap.exists()) {
           const data = snap.data() || {};
@@ -83,6 +118,7 @@ export function useAuthRole() {
     });
 
     return () => {
+      isActive = false;
       if (unsubAdmin) unsubAdmin();
       unsub();
     };
