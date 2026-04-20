@@ -3,7 +3,8 @@ import { signOut } from "firebase/auth";
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { auth } from "./lib/firebase";
 import { useAuthRole } from "./hooks/useAuth.js";
-import { isEmailAllowed, performanceAllowlist, rosterViewAllowlist } from "./lib/access";
+import { isEmailAllowed, performanceAllowlist } from "./lib/access";
+import { useRosterAccess } from "./hooks/useRosterAccess.js";
 import Navbar from "./components/NavBar.jsx";
 import LoginModal from "./components/LoginModal.jsx";
 import SalesPage from "./pages/SalesPage.jsx";
@@ -18,10 +19,14 @@ export default function App() {
   const { user, isAdmin, isSuperAdmin, loading, isDemo } = useAuthRole();
   const [navHidden, setNavHidden] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
+  const { canViewRoster, loading: rosterAccessLoading } = useRosterAccess(
+    user?.email,
+    isAdmin
+  );
   const canViewPerformance =
     (isAdmin && isEmailAllowed(performanceAllowlist, user?.email)) ||
     isDemo;
-  const canViewRoster = isAdmin || isEmailAllowed(rosterViewAllowlist, user?.email);
+  const appLoading = loading || rosterAccessLoading;
   const showNav = isAdmin || isDemo || canViewRoster;
 
   return (
@@ -41,7 +46,7 @@ export default function App() {
             onOpenLogin={() => setLoginOpen(true)}
           />
         )}
-        {!showNav && !loading && (
+        {!showNav && !appLoading && (
           <div className="sticky top-0 z-40 bg-white/70 backdrop-blur border-b border-black/10">
             <div className="mx-auto flex max-w-6xl items-center justify-between px-3 py-2 sm:px-4">
               <div className="flex items-center gap-2">
@@ -76,7 +81,16 @@ export default function App() {
           <Route path="/knocks" element={<KnocksPage />} />
           <Route
             path="/roster"
-            element={isDemo ? <Navigate to="/sales" replace /> : <RosterPage />}
+            element={
+              isDemo ? (
+                <Navigate to="/sales" replace />
+              ) : (
+                <RosterPage
+                  canViewRoster={canViewRoster}
+                  accessLoading={rosterAccessLoading}
+                />
+              )
+            }
           />
           <Route
             path="/onboarding"

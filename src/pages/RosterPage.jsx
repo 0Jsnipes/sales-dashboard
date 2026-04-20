@@ -11,15 +11,17 @@ import {
   collectionGroup,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { isEmailAllowed, rosterViewAllowlist } from "../lib/access";
+import { normalizeEmail } from "../lib/access";
 import { useAuthRole } from "../hooks/useAuth";
 import { extractRosterFieldsFromPdf } from "../lib/rosterPdf";
 import Modal from "../components/Modal";
 
-export default function RosterPage() {
+export default function RosterPage({
+  canViewRoster = false,
+  accessLoading = false,
+}) {
   const { user, isAdmin, permissions, loading } = useAuthRole();
   const canEditRoster = isAdmin && permissions.canEditRoster;
-  const canViewRoster = isAdmin || isEmailAllowed(rosterViewAllowlist, user?.email);
 
   const [reps, setReps] = useState([]);
   const [options, setOptions] = useState({
@@ -141,7 +143,7 @@ export default function RosterPage() {
   };
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !canViewRoster) return;
     const unsub = onSnapshot(collection(db, "roster"), (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
@@ -158,7 +160,7 @@ export default function RosterPage() {
     });
 
     return () => unsub();
-  }, [user]);
+  }, [canViewRoster, user]);
 
   useEffect(() => {
     setSelectedIds((prev) => {
@@ -170,7 +172,7 @@ export default function RosterPage() {
   }, [reps]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !canViewRoster) return;
     const unsub = onSnapshot(collection(db, "rosterOptions"), (snap) => {
       const grouped = { manager: [], location: [], program: [] };
       snap.forEach((d) => {
@@ -195,10 +197,10 @@ export default function RosterPage() {
     });
 
     return () => unsub();
-  }, [user]);
+  }, [canViewRoster, user]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !canViewRoster) return;
     const unsub = onSnapshot(collection(db, "rosterTerminated"), (snap) => {
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -212,10 +214,10 @@ export default function RosterPage() {
       setTerminated(list);
     });
     return () => unsub();
-  }, [user]);
+  }, [canViewRoster, user]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !canViewRoster) return;
     let cancelled = false;
 
     const fetchTotals = async () => {
@@ -248,7 +250,7 @@ export default function RosterPage() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [canViewRoster, user]);
 
   const managers = useMemo(() => {
     const set = new Set(
@@ -317,6 +319,7 @@ export default function RosterPage() {
     location: rep?.location || "",
     program: rep?.program || "",
     email: rep?.email || "",
+    emailNormalized: normalizeEmail(rep?.emailNormalized || rep?.email),
     phone: rep?.phone || "",
     social: rep?.social || "",
     referredBy: rep?.referredBy || "",
@@ -403,6 +406,7 @@ export default function RosterPage() {
 
     setSaving(true);
     try {
+      const normalizedEmail = normalizeEmail(email);
       const payload = {
         name: name.trim(),
         salesId: salesId.trim(),
@@ -410,6 +414,7 @@ export default function RosterPage() {
         location: location.trim(),
         program: program.trim(),
         email: email.trim(),
+        emailNormalized: normalizedEmail,
         phone: phone.trim(),
         social: social.trim(),
         createdAt: serverTimestamp(),
@@ -526,6 +531,7 @@ export default function RosterPage() {
       location: editDraft.location.trim(),
       program: editDraft.program.trim(),
       email: editDraft.email.trim(),
+      emailNormalized: normalizeEmail(editDraft.email),
       phone: editDraft.phone.trim(),
       social: editDraft.social.trim(),
       referredBy: editDraft.referredBy.trim(),
@@ -615,6 +621,7 @@ export default function RosterPage() {
           location: locationVal,
           program: programVal,
           email: emailVal,
+          emailNormalized: normalizeEmail(emailVal),
           phone: phoneVal,
           social: socialVal,
           createdAt: serverTimestamp(),
@@ -1139,12 +1146,12 @@ export default function RosterPage() {
     };
   };
 
-  if (loading) {
+  if (loading || accessLoading) {
     return <div className="p-6 text-slate-600">Loading...</div>;
   }
 
   if (!canViewRoster) {
-    return <div className="p-6 text-slate-600">Admin access required.</div>;
+    return <div className="p-6 text-slate-600">You must be on the roster to view this page.</div>;
   }
 
   return (
@@ -1929,4 +1936,3 @@ export default function RosterPage() {
     </div>
   );
 }
-

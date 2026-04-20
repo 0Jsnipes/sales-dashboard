@@ -1,15 +1,19 @@
-export const performanceAllowlist = new Set([
-  "snipes1995@gmail.com",
-  "j.sexton@abenergymarketing.com",
-]);
+export const normalizeEmail = (email) => (email || "").trim().toLowerCase();
 
-export const rosterViewAllowlist = new Set([
-  "snipes1995@gmail.com",
-  "j.sexton@abenergymarketing.com",
-  "Kristin@abenergymarketing.com"
-]);
+export const performanceAllowlist = new Set(
+  ["snipes1995@gmail.com", "j.sexton@abenergymarketing.com"].map(normalizeEmail)
+);
+
+export const rosterViewAllowlist = new Set(
+  [
+    "snipes1995@gmail.com",
+    "j.sexton@abenergymarketing.com",
+    "Kristin@abenergymarketing.com",
+  ].map(normalizeEmail)
+);
 
 export const isEmailAllowed = (allowlist, email) => {
-  if (!email) return false;
-  return allowlist.has(email.toLowerCase());
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return false;
+  return allowlist.has(normalizedEmail);
 };
