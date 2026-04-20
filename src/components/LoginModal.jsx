@@ -8,6 +8,30 @@ import Modal from "./Modal.jsx";
  *  - open: boolean
  *  - onClose: () => void
  */
+
+function getLoginErrorMessage(error) {
+  switch (error?.code) {
+    case "auth/invalid-email":
+      return "Enter a valid email address.";
+    case "auth/missing-password":
+      return "Enter the password for this account.";
+    case "auth/user-disabled":
+      return "This account has been disabled in Firebase Auth.";
+    case "auth/user-not-found":
+      return "No Firebase Auth account exists for this email.";
+    case "auth/wrong-password":
+      return "The password is incorrect.";
+    case "auth/invalid-credential":
+      return "The email or password is incorrect.";
+    case "auth/too-many-requests":
+      return "Too many failed attempts. Try again later or reset the password.";
+    case "auth/network-request-failed":
+      return "Network error while contacting Firebase. Try again.";
+    default:
+      return error?.message || "Login failed.";
+  }
+}
+
 export default function LoginModal({ open, onClose }) {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
@@ -15,12 +39,15 @@ export default function LoginModal({ open, onClose }) {
   const [err, setErr] = useState("");
 
   const login = async () => {
-    setErr(""); setBusy(true);
+    const normalizedEmail = email.trim().toLowerCase();
+
+    setErr("");
+    setBusy(true);
     try {
-      await signInWithEmailAndPassword(auth, email, pw);
+      await signInWithEmailAndPassword(auth, normalizedEmail, pw);
       onClose();
     } catch (e) {
-      setErr(e?.message || "Login failed");
+      setErr(getLoginErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -47,9 +74,11 @@ export default function LoginModal({ open, onClose }) {
       </div>
       {err && <p className="mt-2 text-sm text-error">{err}</p>}
       <div className="mt-4 flex justify-end gap-2">
-        <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className="btn btn-ghost" onClick={onClose} disabled={busy}>
+          Cancel
+        </button>
         <button className="btn btn-primary" onClick={login} disabled={busy}>
-          {busy ? "Signing in…" : "Login"}
+          {busy ? "Signing in..." : "Login"}
         </button>
       </div>
     </Modal>
