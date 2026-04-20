@@ -4,7 +4,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { useDemoMode } from "./useDemoMode";
 
-const SUPER_ADMIN_EMAIL = "snipes1995@gmail.com";
+const SUPER_ADMIN_EMAIL = ["snipes1995@gmail.com", "kunyealogray@gmail.com"];
 const EMPTY_PERMS = {
   canEditSales: false,
   canEditKnocks: false,
