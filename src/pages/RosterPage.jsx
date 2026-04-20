@@ -24,16 +24,7 @@ export default function RosterPage({
   const canEditRoster = isAdmin && permissions.canEditRoster;
   const getInitialTerminationEmailDraft = () => ({
     rep: null,
-    entityFullName: "",
-    entityDisplayName: "",
-    effectiveDate: "",
     lastSaleDate: "",
-    attChargebackEndDate: "",
-    attFundingDate: "",
-    tFiberChargebackEndDate: "",
-    tFiberFundingDate: "",
-    directvChargebackEndDate: "",
-    directvFundingDate: "",
     loading: false,
   });
 
@@ -834,16 +825,17 @@ export default function RosterPage({
     return next;
   };
 
-  const getTerminationTimelineDraftFields = (lastSaleDateValue) => {
+  const getTerminationTimeline = (lastSaleDateValue) => {
     const lastSaleDateObj = parseLocalISODate(lastSaleDateValue);
     if (!lastSaleDateObj) {
       return {
-        attChargebackEndDate: "",
-        attFundingDate: "",
-        tFiberChargebackEndDate: "",
-        tFiberFundingDate: "",
-        directvChargebackEndDate: "",
-        directvFundingDate: "",
+        lastSaleDateObj: null,
+        attChargebackEndDateObj: null,
+        attFundingDateObj: null,
+        tFiberChargebackEndDateObj: null,
+        tFiberFundingDateObj: null,
+        directvChargebackEndDateObj: null,
+        directvFundingDateObj: null,
       };
     }
 
@@ -852,12 +844,13 @@ export default function RosterPage({
     const directvChargebackEndDateObj = addDays(lastSaleDateObj, 180);
 
     return {
-      attChargebackEndDate: formatInputDate(attChargebackEndDateObj),
-      attFundingDate: formatInputDate(nextWednesday(attChargebackEndDateObj)),
-      tFiberChargebackEndDate: formatInputDate(tFiberChargebackEndDateObj),
-      tFiberFundingDate: formatInputDate(nextWednesday(tFiberChargebackEndDateObj)),
-      directvChargebackEndDate: formatInputDate(directvChargebackEndDateObj),
-      directvFundingDate: formatInputDate(nextWednesday(directvChargebackEndDateObj)),
+      lastSaleDateObj,
+      attChargebackEndDateObj,
+      attFundingDateObj: nextWednesday(attChargebackEndDateObj),
+      tFiberChargebackEndDateObj,
+      tFiberFundingDateObj: nextWednesday(tFiberChargebackEndDateObj),
+      directvChargebackEndDateObj,
+      directvFundingDateObj: nextWednesday(directvChargebackEndDateObj),
     };
   };
 
@@ -995,23 +988,23 @@ export default function RosterPage({
 
   const buildTerminationEmail = (draft) => {
     const rep = draft?.rep;
-    const fallbackName = (rep?.name || "").trim();
-    const entityFullName = (draft?.entityFullName || fallbackName || "the separated party").trim();
-    const entityDisplayName = (draft?.entityDisplayName || entityFullName).trim();
-    const effectiveDateObj = parseLocalISODate(draft?.effectiveDate);
-    const lastSaleDateObj = parseLocalISODate(draft?.lastSaleDate);
-    const attChargebackEndDateObj = parseLocalISODate(draft?.attChargebackEndDate);
-    const attFundingDateObj = parseLocalISODate(draft?.attFundingDate);
-    const tFiberChargebackEndDateObj = parseLocalISODate(draft?.tFiberChargebackEndDate);
-    const tFiberFundingDateObj = parseLocalISODate(draft?.tFiberFundingDate);
-    const directvChargebackEndDateObj = parseLocalISODate(draft?.directvChargebackEndDate);
-    const directvFundingDateObj = parseLocalISODate(draft?.directvFundingDate);
+    const repName = (rep?.name || "").trim() || "the separated party";
+    const effectiveDateObj = new Date();
+    const {
+      lastSaleDateObj,
+      attChargebackEndDateObj,
+      attFundingDateObj,
+      tFiberChargebackEndDateObj,
+      tFiberFundingDateObj,
+      directvChargebackEndDateObj,
+      directvFundingDateObj,
+    } = getTerminationTimeline(draft?.lastSaleDate);
 
-    const subject = `Notification of Official Contract Termination - ${entityFullName}`;
+    const subject = `Notification of Official Contract Termination - ${repName}`;
     const bodyLines = [
       "Hello,",
       "",
-      `This email is to make official the separation between ${entityFullName}, its associated independent contractors, and AB Marketing LLC, effective ${formatTerminationEmailDate(effectiveDateObj)}.`,
+      `This email is to make official the separation between ${repName}, its associated independent contractors, and AB Marketing LLC, effective ${formatTerminationEmailDate(effectiveDateObj)}.`,
       "",
       "Please make turning in any property of AB Marketing a priority. As stated in your signed onboarding contract, remaining commission checks will be held until the end of the applicable chargeback period:",
       "",
@@ -1019,7 +1012,7 @@ export default function RosterPage({
       "- T-Fiber: 120 days after last sales date",
       "- DIRECTV: 180 days after last sales date",
       "",
-      `${entityDisplayName}'s last sale date was ${formatTerminationEmailDate(lastSaleDateObj)}.`,
+      `${repName}'s last sale date was ${formatTerminationEmailDate(lastSaleDateObj)}.`,
       "",
       "Below is the final commission timeline:",
       "",
@@ -1082,18 +1075,12 @@ export default function RosterPage({
       return;
     }
 
-    const repName = (rep?.name || "").trim();
     const existingDate =
       formatInputDate(parseLocalISODate(rep?.lastSaleDate || rep?.lastSale || "")) || "";
-    const timelineFields = getTerminationTimelineDraftFields(existingDate);
     setTerminationEmailDraft({
       ...getInitialTerminationEmailDraft(),
       rep,
-      entityFullName: repName,
-      entityDisplayName: repName,
-      effectiveDate: formatInputDate(new Date()),
       lastSaleDate: existingDate,
-      ...timelineFields,
       loading: true,
     });
 
@@ -1118,7 +1105,6 @@ export default function RosterPage({
           return {
             ...prev,
             lastSaleDate: suggestedDate,
-            ...getTerminationTimelineDraftFields(suggestedDate),
             loading: false,
           };
         });
@@ -1131,51 +1117,10 @@ export default function RosterPage({
   };
 
   const handleTerminationDraftFieldChange = (field, value) => {
-    setTerminationEmailDraft((prev) => {
-      const linkedFundingFieldByChargebackField = {
-        attChargebackEndDate: "attFundingDate",
-        tFiberChargebackEndDate: "tFiberFundingDate",
-        directvChargebackEndDate: "directvFundingDate",
-      };
-      const next = {
-        ...prev,
-        [field]: value,
-      };
-
-      if (field === "entityFullName") {
-        const previousDisplayName = (prev.entityDisplayName || "").trim();
-        const previousFullName = (prev.entityFullName || "").trim();
-        if (!previousDisplayName || previousDisplayName === previousFullName) {
-          next.entityDisplayName = value;
-        }
-      }
-
-      if (field === "lastSaleDate") {
-        return {
-          ...next,
-          ...getTerminationTimelineDraftFields(value),
-        };
-      }
-
-      const linkedFundingField = linkedFundingFieldByChargebackField[field];
-      if (linkedFundingField) {
-        const previousFundingDate = prev[linkedFundingField] || "";
-        const previousChargebackDateObj = parseLocalISODate(prev[field]);
-        const previousSuggestedFundingDate = previousChargebackDateObj
-          ? formatInputDate(nextWednesday(previousChargebackDateObj))
-          : "";
-        const chargebackDateObj = parseLocalISODate(value);
-        const nextSuggestedFundingDate = chargebackDateObj
-          ? formatInputDate(nextWednesday(chargebackDateObj))
-          : "";
-
-        if (!previousFundingDate || previousFundingDate === previousSuggestedFundingDate) {
-          next[linkedFundingField] = nextSuggestedFundingDate;
-        }
-      }
-
-      return next;
-    });
+    setTerminationEmailDraft((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
   };
 
   const handleConfirmTerminationEmail = async () => {
@@ -1203,6 +1148,7 @@ export default function RosterPage({
       nextTarget: (tier + 1) * 10,
     };
   };
+  const terminationTimelinePreview = getTerminationTimeline(terminationEmailDraft.lastSaleDate);
 
   if (loading || accessLoading) {
     return <div className="p-6 text-slate-600">Loading...</div>;
@@ -1941,172 +1887,71 @@ export default function RosterPage({
       <Modal
         open={!!terminationEmailDraft.rep}
         onClose={closeTerminationEmailDraft}
-        maxWidth="max-w-2xl bg-white"
+        maxWidth="max-w-lg bg-white"
       >
         <h3 className="text-lg font-semibold text-slate-900">Draft Termination Email</h3>
         <p className="mt-2 text-sm text-slate-600">
-          Review the names and dates for{" "}
+          Confirm the last sale date for{" "}
           <span className="font-medium text-slate-800">
             {terminationEmailDraft.rep?.name || "this rep"}
           </span>
-          {" "}before opening the email.
+          . All other dates are calculated automatically from it.
         </p>
         <div className="mt-5 space-y-5">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-slate-700" htmlFor="termination-entity-full-name">
-                Separation name
-              </label>
-              <input
-                id="termination-entity-full-name"
-                type="text"
-                className="input input-bordered mt-2 w-full"
-                value={terminationEmailDraft.entityFullName}
-                onChange={(e) =>
-                  handleTerminationDraftFieldChange("entityFullName", e.target.value)
-                }
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700" htmlFor="termination-entity-display-name">
-                Last sale line name
-              </label>
-              <input
-                id="termination-entity-display-name"
-                type="text"
-                className="input input-bordered mt-2 w-full"
-                value={terminationEmailDraft.entityDisplayName}
-                onChange={(e) =>
-                  handleTerminationDraftFieldChange("entityDisplayName", e.target.value)
-                }
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700" htmlFor="termination-effective-date">
-                Effective date
-              </label>
-              <input
-                id="termination-effective-date"
-                type="date"
-                className="input input-bordered mt-2 w-full"
-                value={terminationEmailDraft.effectiveDate}
-                onChange={(e) =>
-                  handleTerminationDraftFieldChange("effectiveDate", e.target.value)
-                }
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700" htmlFor="last-sale-date">
-                Last sale date
-              </label>
-              <input
-                id="last-sale-date"
-                type="date"
-                className="input input-bordered mt-2 w-full"
-                value={terminationEmailDraft.lastSaleDate}
-                onChange={(e) =>
-                  handleTerminationDraftFieldChange("lastSaleDate", e.target.value)
-                }
-              />
-            </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700" htmlFor="last-sale-date">
+              Last sale date
+            </label>
+            <input
+              id="last-sale-date"
+              type="date"
+              className="input input-bordered mt-2 w-full"
+              value={terminationEmailDraft.lastSaleDate}
+              onChange={(e) =>
+                handleTerminationDraftFieldChange("lastSaleDate", e.target.value)
+              }
+            />
           </div>
           <p className="mt-2 text-xs text-slate-500">
             {terminationEmailDraft.loading
               ? "Checking sales history for a suggested date..."
-              : "Last sale date will auto-fill the timeline below. You can still edit any date manually."}
+              : "AT&T, T-Fiber, and DIRECTV dates are always calculated from the last sale date."}
           </p>
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-xl border border-slate-200 p-4">
-              <h4 className="text-sm font-semibold text-slate-900">AT&amp;T</h4>
-              <div className="mt-3">
-                <label className="block text-xs font-medium uppercase tracking-wide text-slate-500" htmlFor="att-chargeback-end-date">
-                  Chargeback period ends
-                </label>
-                <input
-                  id="att-chargeback-end-date"
-                  type="date"
-                  className="input input-bordered mt-2 w-full"
-                  value={terminationEmailDraft.attChargebackEndDate}
-                  onChange={(e) =>
-                    handleTerminationDraftFieldChange("attChargebackEndDate", e.target.value)
-                  }
-                />
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <h4 className="text-sm font-semibold text-slate-900">Calculated timeline</h4>
+            <div className="mt-3 space-y-3 text-sm text-slate-700">
+              <div>
+                <div className="font-medium text-slate-900">AT&amp;T</div>
+                <div>
+                  Chargeback period ends:{" "}
+                  {formatTerminationEmailDate(terminationTimelinePreview.attChargebackEndDateObj)}
+                </div>
+                <div>
+                  Available to fund:{" "}
+                  {formatTerminationEmailDate(terminationTimelinePreview.attFundingDateObj)}
+                </div>
               </div>
-              <div className="mt-4">
-                <label className="block text-xs font-medium uppercase tracking-wide text-slate-500" htmlFor="att-funding-date">
-                  Available to fund
-                </label>
-                <input
-                  id="att-funding-date"
-                  type="date"
-                  className="input input-bordered mt-2 w-full"
-                  value={terminationEmailDraft.attFundingDate}
-                  onChange={(e) =>
-                    handleTerminationDraftFieldChange("attFundingDate", e.target.value)
-                  }
-                />
+              <div>
+                <div className="font-medium text-slate-900">T-Fiber</div>
+                <div>
+                  Chargeback period ends:{" "}
+                  {formatTerminationEmailDate(terminationTimelinePreview.tFiberChargebackEndDateObj)}
+                </div>
+                <div>
+                  Available to fund:{" "}
+                  {formatTerminationEmailDate(terminationTimelinePreview.tFiberFundingDateObj)}
+                </div>
               </div>
-            </div>
-            <div className="rounded-xl border border-slate-200 p-4">
-              <h4 className="text-sm font-semibold text-slate-900">T-Fiber</h4>
-              <div className="mt-3">
-                <label className="block text-xs font-medium uppercase tracking-wide text-slate-500" htmlFor="tfiber-chargeback-end-date">
-                  Chargeback period ends
-                </label>
-                <input
-                  id="tfiber-chargeback-end-date"
-                  type="date"
-                  className="input input-bordered mt-2 w-full"
-                  value={terminationEmailDraft.tFiberChargebackEndDate}
-                  onChange={(e) =>
-                    handleTerminationDraftFieldChange("tFiberChargebackEndDate", e.target.value)
-                  }
-                />
-              </div>
-              <div className="mt-4">
-                <label className="block text-xs font-medium uppercase tracking-wide text-slate-500" htmlFor="tfiber-funding-date">
-                  Available to fund
-                </label>
-                <input
-                  id="tfiber-funding-date"
-                  type="date"
-                  className="input input-bordered mt-2 w-full"
-                  value={terminationEmailDraft.tFiberFundingDate}
-                  onChange={(e) =>
-                    handleTerminationDraftFieldChange("tFiberFundingDate", e.target.value)
-                  }
-                />
-              </div>
-            </div>
-            <div className="rounded-xl border border-slate-200 p-4">
-              <h4 className="text-sm font-semibold text-slate-900">DIRECTV</h4>
-              <div className="mt-3">
-                <label className="block text-xs font-medium uppercase tracking-wide text-slate-500" htmlFor="directv-chargeback-end-date">
-                  Chargeback period ends
-                </label>
-                <input
-                  id="directv-chargeback-end-date"
-                  type="date"
-                  className="input input-bordered mt-2 w-full"
-                  value={terminationEmailDraft.directvChargebackEndDate}
-                  onChange={(e) =>
-                    handleTerminationDraftFieldChange("directvChargebackEndDate", e.target.value)
-                  }
-                />
-              </div>
-              <div className="mt-4">
-                <label className="block text-xs font-medium uppercase tracking-wide text-slate-500" htmlFor="directv-funding-date">
-                  Available to fund
-                </label>
-                <input
-                  id="directv-funding-date"
-                  type="date"
-                  className="input input-bordered mt-2 w-full"
-                  value={terminationEmailDraft.directvFundingDate}
-                  onChange={(e) =>
-                    handleTerminationDraftFieldChange("directvFundingDate", e.target.value)
-                  }
-                />
+              <div>
+                <div className="font-medium text-slate-900">DIRECTV</div>
+                <div>
+                  Chargeback period ends:{" "}
+                  {formatTerminationEmailDate(terminationTimelinePreview.directvChargebackEndDateObj)}
+                </div>
+                <div>
+                  Available to fund:{" "}
+                  {formatTerminationEmailDate(terminationTimelinePreview.directvFundingDateObj)}
+                </div>
               </div>
             </div>
           </div>
@@ -2123,7 +1968,7 @@ export default function RosterPage({
             className="btn btn-primary"
             type="button"
             onClick={handleConfirmTerminationEmail}
-            disabled={!terminationEmailDraft.lastSaleDate || !terminationEmailDraft.effectiveDate}
+            disabled={!terminationEmailDraft.lastSaleDate}
           >
             Open Email
           </button>
