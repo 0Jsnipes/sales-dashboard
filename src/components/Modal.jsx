@@ -18,7 +18,7 @@ export default function Modal({ open, onClose, maxWidth = "max-w-2xl", children 
       />
       {/* Dialog */}
       <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div className={`w-[92vw] ${maxWidth} rounded-2xl bg-base-100 p-6 shadow-xl`}>
+        <div className={`w-[92vw] ${maxWidth} rounded-2xl bg-white p-6 shadow-xl`}>
           {children}
         </div>
       </div>

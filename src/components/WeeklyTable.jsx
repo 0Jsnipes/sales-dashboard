@@ -13,6 +13,7 @@ import { db } from "../lib/firebase";
 import { DAYS, prevWeekISO } from "../utils/weeks.js";
 import AddRepsModal from "./AddRepsModal";
 import EditRepsModal from "./EditRepsModal";
+import Modal from "./Modal";
 import { useAuthRole } from "../hooks/useAuth.js";
 import { useDemoMode } from "../hooks/useDemoMode";
 import { getDemoWeekRows } from "../demo/demoData.js";
@@ -32,6 +33,44 @@ const escapeCell = (value) =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+
+function getPreviousLocalDay() {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  now.setDate(now.getDate() - 1);
+  return now;
+}
+
+function getInactiveDayCount(rep, endIndex) {
+  const sales = Array.isArray(rep.sales) ? rep.sales : Array(7).fill(0);
+  const knocks = Array.isArray(rep.knocks) ? rep.knocks : Array(7).fill(0);
+  let count = 0;
+
+  for (let i = endIndex; i >= 0; i -= 1) {
+    if (clampNum(sales[i]) > 0 || clampNum(knocks[i]) > 0) break;
+    count += 1;
+  }
+
+  return count;
+}
+
+function getInactivityTone(daysInactive) {
+  if (daysInactive >= 3) return "red";
+  if (daysInactive >= 2) return "yellow";
+  return "none";
+}
+
+function escapeCsv(value) {
+  const stringValue = String(value ?? "");
+  if (/[",\n]/.test(stringValue)) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+  return stringValue;
+}
+
+function isAffiliateManaged(rep) {
+  return (rep?.manager || "").trim().toLowerCase() === "affiliate";
+}
 
 function DownloadIcon() {
   return (
@@ -80,12 +119,13 @@ export default function WeeklyTable({
   teamFilter = "All",
   managerFilter = "All",
 }) {
-  const { user } = useAuthRole();
+  const { user, isSuperAdmin } = useAuthRole();
   const isDemo = useDemoMode();
   const [rows, setRows] = useState([]);
   const [openAdd, setOpenAdd] = useState(false);
   const [repToEdit, setRepToEdit] = useState(null); // <-- per-rep edit
   const [highlightedRepId, setHighlightedRepId] = useState(null);
+  const [inactiveModalOpen, setInactiveModalOpen] = useState(false);
   const showHeaderActions = canEdit || rows.length > 0;
 
   // Header dates for Mon..Sun
@@ -280,6 +320,73 @@ export default function WeeklyTable({
     colTotals.goalTotal > 0
       ? Math.min(100, Math.round((colTotals.weekTotal / colTotals.goalTotal) * 100))
       : 0;
+
+  const inactivitySummary = useMemo(() => {
+    const weekStart = parseLocalISO(weekISO);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    const previousDay = getPreviousLocalDay();
+
+    if (weekStart > previousDay) {
+      return {
+        effectiveDate: null,
+        rows: rows.map((row) => ({
+          ...row,
+          inactiveDays: 0,
+          inactivityTone: "none",
+        })),
+        inactiveRows: [],
+      };
+    }
+
+    const effectiveDate = previousDay < weekEnd ? previousDay : weekEnd;
+    const effectiveDayIndex = Math.min(
+      6,
+      Math.max(
+        0,
+        Math.floor((effectiveDate.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24))
+      )
+    );
+
+    const annotatedRows = rows.map((row) => {
+      if (isAffiliateManaged(row)) {
+        return {
+          ...row,
+          inactiveDays: 0,
+          inactivityTone: "none",
+        };
+      }
+
+      const inactiveDays = getInactiveDayCount(row, effectiveDayIndex);
+      return {
+        ...row,
+        inactiveDays,
+        inactivityTone: getInactivityTone(inactiveDays),
+      };
+    });
+
+    return {
+      effectiveDate,
+      rows: annotatedRows,
+      inactiveRows: annotatedRows
+        .filter((row) => row.inactiveDays >= 3)
+        .sort(
+          (a, b) =>
+            b.inactiveDays - a.inactiveDays ||
+            (a.name || "").localeCompare(b.name || "", undefined, {
+              sensitivity: "base",
+            })
+        ),
+    };
+  }, [rows, weekISO]);
+
+  const inactivityDateLabel = inactivitySummary.effectiveDate
+    ? inactivitySummary.effectiveDate.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+    : null;
 
   // Log per-day totals for the current week when data changes
   useEffect(() => {
@@ -552,6 +659,35 @@ export default function WeeklyTable({
     URL.revokeObjectURL(url);
   };
 
+  const downloadInactiveCsv = () => {
+    const csvRows = [
+      ["Agent", "Manager", "Location", "Inactive Days", "As Of"],
+      ...inactivitySummary.inactiveRows.map((row) => [
+        row.name || "",
+        row.manager || "",
+        row.team || "",
+        row.inactiveDays,
+        inactivityDateLabel || "",
+      ]),
+    ];
+
+    const csvContent = csvRows
+      .map((row) => row.map((cell) => escapeCsv(cell)).join(","))
+      .join("\n");
+
+    const blob = new Blob([csvContent], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `inactive-agents-${weekISO}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div
       className={`rounded-2xl bg-base-100 shadow ${
@@ -586,6 +722,18 @@ export default function WeeklyTable({
           </div>
         )}
       </div>
+
+      {isSuperAdmin && inactivityDateLabel && (
+        <div className="mt-4 flex justify-end px-2">
+          <button
+            type="button"
+            className="btn btn-sm h-10 min-h-10 rounded-xl border-0 bg-slate-900 px-4 text-white shadow-sm transition hover:bg-slate-800"
+            onClick={() => setInactiveModalOpen(true)}
+          >
+            View inactive ({inactivitySummary.inactiveRows.length})
+          </button>
+        </div>
+      )}
 
       <div className="mt-3 overflow-x-auto">
         <table className="table w-full">
@@ -631,20 +779,36 @@ export default function WeeklyTable({
               [&>tr>td]:border-b [&>tr>td]:border-slate-200
             "
           >
-            {rows.map((r) => {
+            {inactivitySummary.rows.map((r) => {
               const arr = r[metricKey] || Array(7).fill(0);
               const total = arr.reduce((a, b) => a + clampNum(b), 0);
               const goal = clampNum(r[goalKey]);
               const pct =
                 goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : 0;
               const isHighlighted = highlightedRepId === r.id;
+              const nameHighlightClass =
+                !isSuperAdmin
+                  ? ""
+                  : r.inactivityTone === "red"
+                  ? "bg-red-100 text-red-700 ring-1 ring-red-200"
+                  : r.inactivityTone === "yellow"
+                  ? "bg-amber-100 text-amber-800 ring-1 ring-amber-200"
+                  : "";
 
               return (
                 <tr
                   key={`${r.id}-${r.name}`}
                   className={isHighlighted ? "!bg-slate-200" : undefined}
                 >
-                  <td className="font-medium">{r.name}</td>
+                  <td className="font-medium">
+                    <span
+                      className={`inline-flex rounded-lg px-2 py-1 ${
+                        nameHighlightClass || ""
+                      }`}
+                    >
+                      {r.name}
+                    </span>
+                  </td>
 
                   <td className="text-sm">{r.manager || ""}</td>
 
@@ -793,6 +957,70 @@ export default function WeeklyTable({
         weekISO={weekISO}
         reps={repToEdit ? [repToEdit] : []}
       />
+
+      <Modal
+        open={inactiveModalOpen}
+        onClose={() => setInactiveModalOpen(false)}
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">Inactive Agents</h3>
+              {inactivityDateLabel && (
+                <p className="text-sm text-slate-600">
+                  Based on activity through {inactivityDateLabel}.
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setInactiveModalOpen(false)}
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              className="btn btn-sm rounded-xl border border-slate-200 bg-white px-4 text-slate-700 shadow-sm transition hover:bg-slate-100 hover:text-slate-900"
+              onClick={downloadInactiveCsv}
+            >
+              Download CSV
+            </button>
+          </div>
+
+          {inactivitySummary.inactiveRows.length > 0 ? (
+            <div className="max-h-[60vh] overflow-y-auto rounded-xl border border-slate-200">
+              <div className="divide-y divide-slate-200">
+                {inactivitySummary.inactiveRows.map((row) => (
+                  <div
+                    key={`inactive-${row.id}`}
+                    className="flex items-center justify-between gap-4 px-4 py-3"
+                  >
+                    <div>
+                      <div className="font-medium text-slate-900">{row.name}</div>
+                      <div className="text-sm text-slate-500">
+                        {row.manager || "No manager"}
+                        {row.team ? ` - ${row.team}` : ""}
+                      </div>
+                    </div>
+                    <div className="rounded-full bg-red-100 px-3 py-1 text-sm font-semibold text-red-700">
+                      {row.inactiveDays} days
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-600">
+              No agents are currently inactive for 3 or more straight days.
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }
