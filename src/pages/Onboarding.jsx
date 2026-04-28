@@ -22,6 +22,11 @@ const sections = [
         colorClass: "bg-rose-600 hover:bg-rose-700 text-white",
         link: "https://perfectvisionpoe.my.site.com/poe/s/login/",
       },
+      {
+        label: "Vivint",
+        colorClass: "bg-orange-500 hover:bg-orange-600 text-white",
+        link: "https://app.smartsheet.com/b/form/019dc191afd772bd8ac12c3084a0c72f",
+      },
     ],
   },
   {

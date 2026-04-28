@@ -14,6 +14,7 @@ import OnboardingPage from "./pages/Onboarding";
 import LeaderboardPage from "./pages/LeaderboardPage.jsx";
 import PerformanceDashboardPage from "./pages/PerformanceDashboardPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
+import CoverageMapPage from "./pages/CoverageMapPage.jsx";
 
 export default function App() {
   const { user, isAdmin, isSuperAdmin, loading, isDemo } = useAuthRole();
@@ -79,6 +80,7 @@ export default function App() {
           />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
           <Route path="/knocks" element={<KnocksPage />} />
+          <Route path="/coverage-map" element={<CoverageMapPage />} />
           <Route
             path="/roster"
             element={

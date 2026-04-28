@@ -79,6 +79,7 @@ export default function Navbar({
                 <NavButton to="/performance">Performance</NavButton>
               ) : null}
               <NavButton to="/knocks">Knocks</NavButton>
+              <NavButton to="/coverage-map">Map</NavButton>
               {canViewRoster ? <NavButton to="/roster">Roster</NavButton> : null}
               {isAdmin ? <NavButton to="/onboarding">Onboarding</NavButton> : null}
               {isSuperAdmin ? (
@@ -161,6 +162,9 @@ export default function Navbar({
               ) : null}
               <NavButton to="/knocks" onClick={() => setMobileOpen(false)}>
                 Knocks
+              </NavButton>
+              <NavButton to="/coverage-map" onClick={() => setMobileOpen(false)}>
+                Map
               </NavButton>
               {canViewRoster ? (
                 <NavButton to="/roster" onClick={() => setMobileOpen(false)}>
