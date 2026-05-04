@@ -177,6 +177,7 @@ export default function CoverageMapPage() {
   const hasFitBoundsRef = useRef(false);
   const hasLoadedSharedStateRef = useRef(false);
   const lastSavedPayloadRef = useRef("");
+  const sharedPayloadRef = useRef(null);
   const sharedMapRef = useMemo(() => doc(db, ...SHARED_MAP_DOC_PATH), []);
   const [notesOpen, setNotesOpen] = useState(false);
   const [notes, setNotes] = useState(() => readLocalStorageValue(NOTES_STORAGE_KEY, ""));
@@ -209,6 +210,10 @@ export default function CoverageMapPage() {
     }),
     [hexOverrides, notes, providerColors]
   );
+
+  useEffect(() => {
+    sharedPayloadRef.current = sharedPayload;
+  }, [sharedPayload]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -254,11 +259,16 @@ export default function CoverageMapPage() {
             hexOverrides: data.hexOverrides || {},
           });
         } else {
-          lastSavedPayloadRef.current = JSON.stringify(sharedPayload);
+          const initialPayload = sharedPayloadRef.current || {
+            notes: "",
+            providerColors: defaultProviderColors,
+            hexOverrides: {},
+          };
+          lastSavedPayloadRef.current = JSON.stringify(initialPayload);
           await setDoc(
             sharedMapRef,
             {
-              ...sharedPayload,
+              ...initialPayload,
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
               updatedBy: user?.uid || null,
@@ -276,7 +286,7 @@ export default function CoverageMapPage() {
         setSharedStateError("Shared sync is unavailable right now. Showing local edits only.");
       }
     );
-  }, [isDemo, sharedMapRef, sharedPayload, user?.uid]);
+  }, [isDemo, sharedMapRef, user?.uid]);
 
   useEffect(() => {
     if (isDemo || !hasLoadedSharedStateRef.current) return undefined;
