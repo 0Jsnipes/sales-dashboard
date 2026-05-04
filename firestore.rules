@@ -1,0 +1,100 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == "snipes1995@gmail.com" ||
+        request.auth.token.email == "kunyealogray@gmail.com" ||
+        request.auth.token.email == "j.sexton@abenergymarketing.com"
+      );
+    }
+
+    function adminDoc() {
+      return get(/databases/$(database)/documents/adminUsers/$(request.auth.uid));
+    }
+
+    function isAdminUser() {
+      return isSuperAdmin() || (isSignedIn() && adminDoc().exists());
+    }
+
+    function hasPerm(field) {
+      return isSuperAdmin() || (isSignedIn() && adminDoc().data[field] == true);
+    }
+
+    function canEditSales() { return hasPerm("canEditSales"); }
+    function canEditKnocks() { return hasPerm("canEditKnocks"); }
+    function canEditRoster() { return hasPerm("canEditRoster"); }
+    function canEditOnboarding() { return hasPerm("canEditOnboarding"); }
+
+    function onboardingOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["onboarding"]);
+    }
+
+    match /adminUsers/{uid} {
+      allow read: if isSuperAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow write: if isSuperAdmin();
+    }
+
+    match /teams/{teamId} {
+      allow read: if true;
+      allow write: if canEditSales() || canEditKnocks();
+    }
+
+    match /weeks/{weekId} {
+      allow read: if true;
+      allow write: if canEditSales() || canEditKnocks();
+    }
+
+    match /weeks/{weekId}/reps/{repId} {
+      allow read: if true;
+      allow write: if canEditSales() || canEditKnocks();
+    }
+
+    match /weeks/{weekId}/meta/{docId} {
+      allow read: if true;
+      allow write: if canEditSales() || canEditKnocks();
+    }
+
+    match /weeks/{weekId}/metainfo/{docId} {
+      allow read: if true;
+      allow write: if canEditSales() || canEditKnocks();
+    }
+
+    match /days/{dayId}/reps/{repId} {
+      allow read: if isAdminUser();
+      allow write: if canEditSales();
+    }
+
+    match /roster/{repId} {
+      allow read: if isAdminUser();
+      allow write: if canEditRoster() || (canEditOnboarding() && onboardingOnly());
+    }
+
+    match /rosterOptions/{docId} {
+      allow read: if isAdminUser();
+      allow write: if canEditRoster();
+    }
+
+    match /rosterTerminated/{docId} {
+      allow read: if isAdminUser();
+      allow write: if canEditRoster();
+    }
+
+    match /auditLogs/{docId} {
+      allow read: if isAdminUser();
+      allow write: if isAdminUser();
+    }
+
+    match /sharedMaps/{mapId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

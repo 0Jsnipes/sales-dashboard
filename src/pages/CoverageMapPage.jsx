@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { defaultProviderColors, starterAreas } from "../lib/coverageMapData.js";
+import { db } from "../lib/firebase.js";
+import { useAuthRole } from "../hooks/useAuth.js";
 
 const NOTES_STORAGE_KEY = "coverage-map-notes";
 const COLORS_STORAGE_KEY = "coverage-map-colors";
 const HEX_OVERRIDES_STORAGE_KEY = "coverage-map-hex-overrides";
+const SHARED_MAP_DOC_PATH = ["sharedMaps", "coverageMap"];
 const HEX_RADIUS_DEGREES = 0.33;
 const MAP_BOUNDS = {
   minLat: 24.2,
@@ -14,29 +18,22 @@ const MAP_BOUNDS = {
 
 const providerMeta = {
   att: { label: "AT&T" },
-  tmobile: { label: "T-Mobile" },
+  tmobile: { label: "T-Fiber" },
+  attTfiber: { label: "AT&T + T-Fiber" },
   clear: { label: "Clear" },
 };
 
-function useLocalStorageState(key, fallbackValue) {
-  const [value, setValue] = useState(() => {
-    if (typeof window === "undefined") return fallbackValue;
+function readLocalStorageValue(key, fallbackValue) {
+  if (typeof window === "undefined") return fallbackValue;
 
-    const storedValue = window.localStorage.getItem(key);
-    if (!storedValue) return fallbackValue;
+  const storedValue = window.localStorage.getItem(key);
+  if (!storedValue) return fallbackValue;
 
-    try {
-      return JSON.parse(storedValue);
-    } catch {
-      return fallbackValue;
-    }
-  });
-
-  useEffect(() => {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  }, [key, value]);
-
-  return [value, setValue];
+  try {
+    return JSON.parse(storedValue);
+  } catch {
+    return fallbackValue;
+  }
 }
 
 function useLeaflet() {
@@ -95,6 +92,10 @@ function useLeaflet() {
 
 function normalizeProvider(provider) {
   if (provider === "tmobileGreen" || provider === "tmobileRed") return "tmobile";
+  if (provider === "tfiber") return "tmobile";
+  if (provider === "att+tfiber" || provider === "att_tfiber" || provider === "both") {
+    return "attTfiber";
+  }
   return provider;
 }
 
@@ -174,15 +175,21 @@ export default function CoverageMapPage() {
   const mapRef = useRef(null);
   const layersRef = useRef(null);
   const hasFitBoundsRef = useRef(false);
+  const hasLoadedSharedStateRef = useRef(false);
+  const lastSavedPayloadRef = useRef("");
+  const sharedMapRef = useMemo(() => doc(db, ...SHARED_MAP_DOC_PATH), []);
   const [notesOpen, setNotesOpen] = useState(false);
-  const [notes, setNotes] = useLocalStorageState(NOTES_STORAGE_KEY, "");
-  const [providerColors, setProviderColors] = useLocalStorageState(
-    COLORS_STORAGE_KEY,
-    defaultProviderColors
+  const [notes, setNotes] = useState(() => readLocalStorageValue(NOTES_STORAGE_KEY, ""));
+  const [providerColors, setProviderColors] = useState(() =>
+    readLocalStorageValue(COLORS_STORAGE_KEY, defaultProviderColors)
   );
-  const [hexOverrides, setHexOverrides] = useLocalStorageState(HEX_OVERRIDES_STORAGE_KEY, {});
+  const [hexOverrides, setHexOverrides] = useState(() =>
+    readLocalStorageValue(HEX_OVERRIDES_STORAGE_KEY, {})
+  );
   const [activePaint, setActivePaint] = useState("att");
+  const [sharedStateError, setSharedStateError] = useState("");
   const { ready: leafletReady, error: leafletError } = useLeaflet();
+  const { user, isDemo } = useAuthRole();
 
   const hexGrid = useMemo(() => generateHexGrid(), []);
   const starterAssignments = useMemo(() => buildStarterHexAssignments(hexGrid), [hexGrid]);
@@ -194,6 +201,108 @@ export default function CoverageMapPage() {
     () => Object.values(visibleAssignments).filter(Boolean).length,
     [visibleAssignments]
   );
+  const sharedPayload = useMemo(
+    () => ({
+      notes,
+      providerColors,
+      hexOverrides,
+    }),
+    [hexOverrides, notes, providerColors]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(notes));
+  }, [notes]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(COLORS_STORAGE_KEY, JSON.stringify(providerColors));
+  }, [providerColors]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(HEX_OVERRIDES_STORAGE_KEY, JSON.stringify(hexOverrides));
+  }, [hexOverrides]);
+
+  useEffect(() => {
+    if (isDemo) {
+      hasLoadedSharedStateRef.current = true;
+      setSharedStateError("");
+      return undefined;
+    }
+
+    hasLoadedSharedStateRef.current = false;
+
+    return onSnapshot(
+      sharedMapRef,
+      async (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data() || {};
+          setNotes(typeof data.notes === "string" ? data.notes : "");
+          setProviderColors({
+            ...defaultProviderColors,
+            ...(data.providerColors || {}),
+          });
+          setHexOverrides(data.hexOverrides || {});
+          lastSavedPayloadRef.current = JSON.stringify({
+            notes: typeof data.notes === "string" ? data.notes : "",
+            providerColors: {
+              ...defaultProviderColors,
+              ...(data.providerColors || {}),
+            },
+            hexOverrides: data.hexOverrides || {},
+          });
+        } else {
+          lastSavedPayloadRef.current = JSON.stringify(sharedPayload);
+          await setDoc(
+            sharedMapRef,
+            {
+              ...sharedPayload,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+              updatedBy: user?.uid || null,
+            },
+            { merge: true }
+          );
+        }
+
+        hasLoadedSharedStateRef.current = true;
+        setSharedStateError("");
+      },
+      (error) => {
+        console.error("Failed to load shared coverage map state", error);
+        hasLoadedSharedStateRef.current = true;
+        setSharedStateError("Shared sync is unavailable right now. Showing local edits only.");
+      }
+    );
+  }, [isDemo, sharedMapRef, sharedPayload, user?.uid]);
+
+  useEffect(() => {
+    if (isDemo || !hasLoadedSharedStateRef.current) return undefined;
+
+    const serializedPayload = JSON.stringify(sharedPayload);
+    if (serializedPayload === lastSavedPayloadRef.current) return undefined;
+
+    const timeoutId = window.setTimeout(() => {
+      lastSavedPayloadRef.current = serializedPayload;
+      setDoc(
+        sharedMapRef,
+        {
+          ...sharedPayload,
+          updatedAt: serverTimestamp(),
+          updatedBy: user?.uid || null,
+        },
+        { merge: true }
+      ).catch((error) => {
+        console.error("Failed to save shared coverage map state", error);
+        lastSavedPayloadRef.current = "";
+        setSharedStateError("Shared sync is unavailable right now. Showing local edits only.");
+      });
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [isDemo, sharedMapRef, sharedPayload, user?.uid]);
 
   useEffect(() => {
     if (!leafletReady || !mapNodeRef.current || mapRef.current) return undefined;
@@ -288,9 +397,12 @@ export default function CoverageMapPage() {
                 Hex Coverage
               </h1>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                T-Mobile now uses one color. Click hexes on the map to paint AT&T or
-                T-Mobile coverage and keep notes in the sidebar.
+                Click hexes on the map to paint AT&T, T-Fiber, or shared AT&T and
+                T-Fiber coverage and keep notes in the sidebar.
               </p>
+              {sharedStateError ? (
+                <p className="mt-3 text-sm font-medium text-amber-700">{sharedStateError}</p>
+              ) : null}
             </div>
             <button
               type="button"

@@ -1,6 +1,7 @@
 export const defaultProviderColors = {
   att: "#7f8cff",
   tmobile: "#8fd36d",
+  attTfiber: "#f4a261",
 };
 
 export const starterAreas = [
