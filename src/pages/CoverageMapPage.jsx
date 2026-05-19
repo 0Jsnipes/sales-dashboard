@@ -5,6 +5,7 @@ import { db } from "../lib/firebase.js";
 import { useAuthRole } from "../hooks/useAuth.js";
 
 const NOTES_STORAGE_KEY = "coverage-map-notes";
+const NOTES_DRAFT_STORAGE_KEY = "coverage-map-notes-draft";
 const COLORS_STORAGE_KEY = "coverage-map-colors";
 const HEX_OVERRIDES_STORAGE_KEY = "coverage-map-hex-overrides";
 const SHARED_MAP_DOC_PATH = ["sharedMaps", "coverageMap"];
@@ -177,10 +178,14 @@ export default function CoverageMapPage() {
   const hasFitBoundsRef = useRef(false);
   const hasLoadedSharedStateRef = useRef(false);
   const lastSavedPayloadRef = useRef("");
+  const notesRef = useRef("");
   const sharedPayloadRef = useRef(null);
   const sharedMapRef = useMemo(() => doc(db, ...SHARED_MAP_DOC_PATH), []);
   const [notesOpen, setNotesOpen] = useState(false);
   const [notes, setNotes] = useState(() => readLocalStorageValue(NOTES_STORAGE_KEY, ""));
+  const [draftNotes, setDraftNotes] = useState(() =>
+    readLocalStorageValue(NOTES_DRAFT_STORAGE_KEY, readLocalStorageValue(NOTES_STORAGE_KEY, ""))
+  );
   const [providerColors, setProviderColors] = useState(() =>
     readLocalStorageValue(COLORS_STORAGE_KEY, defaultProviderColors)
   );
@@ -202,6 +207,7 @@ export default function CoverageMapPage() {
     () => Object.values(visibleAssignments).filter(Boolean).length,
     [visibleAssignments]
   );
+  const hasUnsavedNotes = draftNotes !== notes;
   const sharedPayload = useMemo(
     () => ({
       notes,
@@ -216,9 +222,18 @@ export default function CoverageMapPage() {
   }, [sharedPayload]);
 
   useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(notes));
   }, [notes]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(NOTES_DRAFT_STORAGE_KEY, JSON.stringify(draftNotes));
+  }, [draftNotes]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -244,14 +259,16 @@ export default function CoverageMapPage() {
       async (snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data() || {};
-          setNotes(typeof data.notes === "string" ? data.notes : "");
+          const nextNotes = typeof data.notes === "string" ? data.notes : "";
+          setNotes(nextNotes);
+          setDraftNotes((current) => (current === notesRef.current ? nextNotes : current));
           setProviderColors({
             ...defaultProviderColors,
             ...(data.providerColors || {}),
           });
           setHexOverrides(data.hexOverrides || {});
           lastSavedPayloadRef.current = JSON.stringify({
-            notes: typeof data.notes === "string" ? data.notes : "",
+            notes: nextNotes,
             providerColors: {
               ...defaultProviderColors,
               ...(data.providerColors || {}),
@@ -392,6 +409,11 @@ export default function CoverageMapPage() {
 
   const clearPaintedHexes = () => {
     setHexOverrides({});
+  };
+
+  const saveNotes = () => {
+    setNotes(draftNotes);
+    setSharedStateError("");
   };
 
   return (
@@ -566,19 +588,40 @@ export default function CoverageMapPage() {
             </p>
             <h2 className="mt-1 text-xl font-bold text-slate-900">Map Notes</h2>
           </div>
-          <button
-            type="button"
-            className="rounded-full border border-slate-200 px-3 py-1 text-sm font-semibold text-slate-700"
-            onClick={() => setNotesOpen(false)}
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded-full border border-slate-200 px-3 py-1 text-sm font-semibold text-slate-700"
+              onClick={() => setDraftNotes(notes)}
+              disabled={!hasUnsavedNotes}
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-slate-900 bg-slate-900 px-3 py-1 text-sm font-semibold text-white disabled:border-slate-200 disabled:bg-slate-200 disabled:text-slate-500"
+              onClick={saveNotes}
+              disabled={!hasUnsavedNotes}
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-slate-200 px-3 py-1 text-sm font-semibold text-slate-700"
+              onClick={() => setNotesOpen(false)}
+            >
+              Close
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 p-5">
+          <p className="mb-3 text-xs font-medium text-slate-500">
+            Notes stay local while you type. Click Save to publish them to the shared map.
+          </p>
           <textarea
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
+            value={draftNotes}
+            onChange={(event) => setDraftNotes(event.target.value)}
             placeholder="Use this panel for market notes, build targets, follow-ups, or color legend reminders."
             className="h-full min-h-[320px] w-full resize-none rounded-3xl border border-slate-200 bg-slate-50/70 p-4 text-sm leading-6 text-slate-800 outline-none"
           />
