@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   addDoc,
   deleteDoc,
@@ -9,6 +9,7 @@ import {
   getDocs,
   serverTimestamp,
 } from "firebase/firestore";
+import * as XLSX from "xlsx";
 import { db } from "../lib/firebase";
 import { DAYS, prevWeekISO } from "../utils/weeks.js";
 import AddRepsModal from "./AddRepsModal";
@@ -126,6 +127,9 @@ export default function WeeklyTable({
   const [repToEdit, setRepToEdit] = useState(null); // <-- per-rep edit
   const [highlightedRepId, setHighlightedRepId] = useState(null);
   const [inactiveModalOpen, setInactiveModalOpen] = useState(false);
+  const [importStatus, setImportStatus] = useState("");
+  const attFileInputRef = useRef(null);
+  const tmobileFileInputRef = useRef(null);
   const showHeaderActions = canEdit || rows.length > 0;
 
   // Header dates for Mon..Sun
@@ -688,6 +692,95 @@ export default function WeeklyTable({
     URL.revokeObjectURL(url);
   };
 
+  const handleSalesImport = async (event, importType) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      if (metricKey !== "sales") {
+        setImportStatus("ATT sales import is only available on the sales grid.");
+        return;
+      }
+
+      setImportStatus("Reading sales file...");
+
+      const yesterday = getPreviousLocalDay();
+      const targetWeekISO = toLocalISO(startOfLocalWeek(yesterday));
+
+      if (weekISO !== targetWeekISO) {
+        setImportStatus(
+          `Import failed. The file targets ${formatLongDate(
+            yesterday
+          )}, which belongs to the week of ${targetWeekISO}.`
+        );
+        return;
+      }
+
+      const tally =
+        importType === "tmobile"
+          ? await tallyTMobileSalesForDate(file, yesterday)
+          : await tallyAttSalesForDate(file, yesterday);
+      const targetDayIndex = getDayIndexWithinWeek(yesterday, weekISO);
+      const snap = await getDocs(collection(db, base, weekISO, "reps"));
+      const allReps = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((rep) => !rep.deleted);
+
+      let matchedCount = 0;
+      const unmatchedNames = [];
+
+      for (const [salespersonName, salesCount] of Object.entries(tally)) {
+        const matchingRep = allReps.find(
+          (rep) => normalizeName(rep.name) === normalizeName(salespersonName)
+        );
+
+        if (!matchingRep) {
+          unmatchedNames.push(salespersonName);
+          continue;
+        }
+
+        const sales = Array.isArray(matchingRep.sales)
+          ? [...matchingRep.sales]
+          : Array(7).fill(0);
+
+        sales[targetDayIndex] = clampNum(sales[targetDayIndex]) + salesCount;
+
+        await setDoc(
+          doc(db, base, weekISO, "reps", matchingRep.id),
+          {
+            name: matchingRep.name || "",
+            manager: matchingRep.manager || "",
+            team: matchingRep.team || "",
+            salesGoal: clampNum(matchingRep.salesGoal),
+            knocksGoal: clampNum(matchingRep.knocksGoal),
+            sales,
+          },
+          { merge: true }
+        );
+
+        matchedCount += 1;
+      }
+
+      setImportStatus(
+        unmatchedNames.length > 0
+          ? `${importType === "tmobile" ? "T-Mobile" : "ATT"} import complete for ${
+              DAYS[targetDayIndex]
+            }. Updated ${matchedCount} reps. Unmatched: ${unmatchedNames.join(
+              ", "
+            )}`
+          : `${importType === "tmobile" ? "T-Mobile" : "ATT"} import complete for ${
+              DAYS[targetDayIndex]
+            }. Updated ${matchedCount} reps.`
+      );
+    } catch (error) {
+      console.error(error);
+      setImportStatus("Import failed. Check the console for details.");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
   return (
     <div
       className={`rounded-2xl bg-base-100 shadow ${
@@ -709,6 +802,38 @@ export default function WeeklyTable({
               <DownloadIcon />
               <span>Download Excel</span>
             </button>
+            {canEdit && metricKey === "sales" && (
+              <>
+                <input
+                  ref={attFileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={(event) => handleSalesImport(event, "att")}
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm h-10 min-h-10 rounded-xl border-0 bg-white px-4 text-slate-700 shadow-sm transition hover:bg-slate-100 hover:text-slate-900"
+                  onClick={() => attFileInputRef.current?.click()}
+                >
+                  <span>ATT Sales upload</span>
+                </button>
+                <input
+                  ref={tmobileFileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={(event) => handleSalesImport(event, "tmobile")}
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm h-10 min-h-10 rounded-xl border-0 bg-white px-4 text-slate-700 shadow-sm transition hover:bg-slate-100 hover:text-slate-900"
+                  onClick={() => tmobileFileInputRef.current?.click()}
+                >
+                  <span>T-Mobile Sales upload</span>
+                </button>
+              </>
+            )}
             {canEdit && <div className="hidden h-6 w-px bg-slate-200 sm:block" aria-hidden="true" />}
             {canEdit && (
               <button
@@ -722,6 +847,12 @@ export default function WeeklyTable({
           </div>
         )}
       </div>
+
+      {canEdit && metricKey === "sales" && importStatus && (
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          {importStatus}
+        </div>
+      )}
 
       {isSuperAdmin && inactivityDateLabel && (
         <div className="mt-4 flex justify-end px-2">
@@ -1023,4 +1154,126 @@ export default function WeeklyTable({
       </Modal>
     </div>
   );
+}
+
+async function tallyAttSalesForDate(file, targetDate) {
+  const data = await file.arrayBuffer();
+  const workbook = XLSX.read(data, {
+    type: "array",
+    cellDates: true,
+  });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, {
+    defval: "",
+  });
+  const targetDateString = toDateString(targetDate);
+  const tally = {};
+
+  rows.forEach((row) => {
+    const orderDate = normalizeDate(row.OrderDate);
+    const salesperson = String(row.SalespersonName || "").trim();
+
+    if (!salesperson || orderDate !== targetDateString) return;
+
+    let salesCount = 0;
+
+    if (hasValue(row.Internet_Package)) salesCount += 1;
+    if (hasValue(row.Video_Package)) salesCount += 1;
+    if (hasValue(row.Voice_Package)) salesCount += 1;
+    if (salesCount === 0) return;
+
+    tally[salesperson] = (tally[salesperson] || 0) + salesCount;
+  });
+
+  return tally;
+}
+
+async function tallyTMobileSalesForDate(file, targetDate) {
+  const data = await file.arrayBuffer();
+  const workbook = XLSX.read(data, {
+    type: "array",
+    cellDates: true,
+  });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, {
+    defval: "",
+  });
+  const targetDateString = toDateString(targetDate);
+  const tally = {};
+
+  rows.forEach((row) => {
+    const orderDate = normalizeDate(row["Order Date"]);
+    const dealerName = String(row.dealername || "").trim();
+
+    if (!dealerName || orderDate !== targetDateString) return;
+
+    tally[dealerName] = (tally[dealerName] || 0) + 1;
+  });
+
+  return tally;
+}
+
+function hasValue(value) {
+  return value !== undefined && value !== null && String(value).trim() !== "";
+}
+
+function normalizeDate(value) {
+  if (!value) return "";
+
+  if (value instanceof Date) {
+    return toDateString(value);
+  }
+
+  const parsedDate = new Date(String(value).trim());
+
+  if (!Number.isNaN(parsedDate.getTime())) {
+    return toDateString(parsedDate);
+  }
+
+  return String(value).trim();
+}
+
+function normalizeName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function toDateString(date) {
+  return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+}
+
+function startOfLocalWeek(date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  const day = (next.getDay() + 6) % 7;
+  next.setDate(next.getDate() - day);
+  return next;
+}
+
+function toLocalISO(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDayIndexWithinWeek(date, weekISO) {
+  const weekStart = parseLocalISO(weekISO);
+  return Math.max(
+    0,
+    Math.min(
+      6,
+      Math.floor((date.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24))
+    )
+  );
+}
+
+function formatLongDate(date) {
+  return date.toLocaleDateString(undefined, {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 }
