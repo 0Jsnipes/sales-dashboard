@@ -705,23 +705,22 @@ export default function WeeklyTable({
 
       setImportStatus("Reading sales file...");
 
-      const yesterday = getPreviousLocalDay();
-      const targetWeekISO = toLocalISO(startOfLocalWeek(yesterday));
+      const targetDates = getImportTargetDates();
+      const targetWeekISO = toLocalISO(startOfLocalWeek(targetDates[0]));
 
       if (weekISO !== targetWeekISO) {
         setImportStatus(
-          `Import failed. The file targets ${formatLongDate(
-            yesterday
+          `Import failed. This upload targets ${formatDateList(
+            targetDates
           )}, which belongs to the week of ${targetWeekISO}.`
         );
         return;
       }
 
-      const tally =
+      const talliesByDate =
         importType === "tmobile"
-          ? await tallyTMobileSalesForDate(file, yesterday)
-          : await tallyAttSalesForDate(file, yesterday);
-      const targetDayIndex = getDayIndexWithinWeek(yesterday, weekISO);
+          ? await tallyTMobileSalesByDates(file, targetDates)
+          : await tallyAttSalesByDates(file, targetDates);
       const snap = await getDocs(collection(db, base, weekISO, "reps"));
       const allReps = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -730,47 +729,59 @@ export default function WeeklyTable({
       let matchedCount = 0;
       const unmatchedNames = [];
 
-      for (const [salespersonName, salesCount] of Object.entries(tally)) {
-        const matchingRep = allReps.find(
-          (rep) => normalizeName(rep.name) === normalizeName(salespersonName)
-        );
+      for (const targetDate of targetDates) {
+        const tally = talliesByDate[toDateString(targetDate)] || {};
+        const targetDayIndex = getDayIndexWithinWeek(targetDate, weekISO);
 
-        if (!matchingRep) {
-          unmatchedNames.push(salespersonName);
-          continue;
+        for (const [salespersonName, salesCount] of Object.entries(tally)) {
+          const matchingRep = allReps.find(
+            (rep) => normalizeName(rep.name) === normalizeName(salespersonName)
+          );
+
+          if (!matchingRep) {
+            const unmatchedKey = normalizeName(salespersonName);
+            if (
+              unmatchedKey &&
+              !unmatchedNames.some((name) => normalizeName(name) === unmatchedKey)
+            ) {
+              unmatchedNames.push(salespersonName);
+            }
+            continue;
+          }
+
+          const sales = Array.isArray(matchingRep.sales)
+            ? [...matchingRep.sales]
+            : Array(7).fill(0);
+
+          sales[targetDayIndex] = clampNum(sales[targetDayIndex]) + salesCount;
+          matchingRep.sales = sales;
+
+          await setDoc(
+            doc(db, base, weekISO, "reps", matchingRep.id),
+            {
+              name: matchingRep.name || "",
+              manager: matchingRep.manager || "",
+              team: matchingRep.team || "",
+              salesGoal: clampNum(matchingRep.salesGoal),
+              knocksGoal: clampNum(matchingRep.knocksGoal),
+              sales,
+            },
+            { merge: true }
+          );
+
+          matchedCount += 1;
         }
-
-        const sales = Array.isArray(matchingRep.sales)
-          ? [...matchingRep.sales]
-          : Array(7).fill(0);
-
-        sales[targetDayIndex] = clampNum(sales[targetDayIndex]) + salesCount;
-
-        await setDoc(
-          doc(db, base, weekISO, "reps", matchingRep.id),
-          {
-            name: matchingRep.name || "",
-            manager: matchingRep.manager || "",
-            team: matchingRep.team || "",
-            salesGoal: clampNum(matchingRep.salesGoal),
-            knocksGoal: clampNum(matchingRep.knocksGoal),
-            sales,
-          },
-          { merge: true }
-        );
-
-        matchedCount += 1;
       }
 
       setImportStatus(
         unmatchedNames.length > 0
           ? `${importType === "tmobile" ? "T-Mobile" : "ATT"} import complete for ${
-              DAYS[targetDayIndex]
+              formatDayList(targetDates, weekISO)
             }. Updated ${matchedCount} reps. Unmatched: ${unmatchedNames.join(
               ", "
             )}`
           : `${importType === "tmobile" ? "T-Mobile" : "ATT"} import complete for ${
-              DAYS[targetDayIndex]
+              formatDayList(targetDates, weekISO)
             }. Updated ${matchedCount} reps.`
       );
     } catch (error) {
@@ -1156,7 +1167,7 @@ export default function WeeklyTable({
   );
 }
 
-async function tallyAttSalesForDate(file, targetDate) {
+async function tallyAttSalesByDates(file, targetDates) {
   const data = await file.arrayBuffer();
   const workbook = XLSX.read(data, {
     type: "array",
@@ -1166,14 +1177,14 @@ async function tallyAttSalesForDate(file, targetDate) {
   const rows = XLSX.utils.sheet_to_json(sheet, {
     defval: "",
   });
-  const targetDateString = toDateString(targetDate);
-  const tally = {};
+  const talliesByDate = createEmptyTallies(targetDates);
+  const targetDateSet = new Set(Object.keys(talliesByDate));
 
   rows.forEach((row) => {
     const orderDate = normalizeDate(row.OrderDate);
     const salesperson = String(row.SalespersonName || "").trim();
 
-    if (!salesperson || orderDate !== targetDateString) return;
+    if (!salesperson || !targetDateSet.has(orderDate)) return;
 
     let salesCount = 0;
 
@@ -1182,13 +1193,14 @@ async function tallyAttSalesForDate(file, targetDate) {
     if (hasValue(row.Voice_Package)) salesCount += 1;
     if (salesCount === 0) return;
 
+    const tally = talliesByDate[orderDate];
     tally[salesperson] = (tally[salesperson] || 0) + salesCount;
   });
 
-  return tally;
+  return talliesByDate;
 }
 
-async function tallyTMobileSalesForDate(file, targetDate) {
+async function tallyTMobileSalesByDates(file, targetDates) {
   const data = await file.arrayBuffer();
   const workbook = XLSX.read(data, {
     type: "array",
@@ -1198,19 +1210,20 @@ async function tallyTMobileSalesForDate(file, targetDate) {
   const rows = XLSX.utils.sheet_to_json(sheet, {
     defval: "",
   });
-  const targetDateString = toDateString(targetDate);
-  const tally = {};
+  const talliesByDate = createEmptyTallies(targetDates);
+  const targetDateSet = new Set(Object.keys(talliesByDate));
 
   rows.forEach((row) => {
     const orderDate = normalizeDate(row["Order Date"]);
     const dealerName = String(row.dealername || "").trim();
 
-    if (!dealerName || orderDate !== targetDateString) return;
+    if (!dealerName || !targetDateSet.has(orderDate)) return;
 
+    const tally = talliesByDate[orderDate];
     tally[dealerName] = (tally[dealerName] || 0) + 1;
   });
 
-  return tally;
+  return talliesByDate;
 }
 
 function hasValue(value) {
@@ -1242,6 +1255,10 @@ function normalizeName(value) {
 
 function toDateString(date) {
   return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+}
+
+function createEmptyTallies(targetDates) {
+  return Object.fromEntries(targetDates.map((date) => [toDateString(date), {}]));
 }
 
 function startOfLocalWeek(date) {
@@ -1276,4 +1293,29 @@ function formatLongDate(date) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function getImportTargetDates() {
+  const previousDay = getPreviousLocalDay();
+
+  if (new Date().getDay() !== 1) {
+    return [previousDay];
+  }
+
+  return [3, 2, 1].map((daysAgo) => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - daysAgo);
+    return date;
+  });
+}
+
+function formatDayList(dates, weekISO) {
+  return dates
+    .map((date) => DAYS[getDayIndexWithinWeek(date, weekISO)])
+    .join(", ");
+}
+
+function formatDateList(dates) {
+  return dates.map((date) => formatLongDate(date)).join(", ");
 }
