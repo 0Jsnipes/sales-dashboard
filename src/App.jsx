@@ -6,7 +6,6 @@ import { useAuthRole } from "./hooks/useAuth.js";
 import { isEmailAllowed, performanceAllowlist } from "./lib/access";
 import { useRosterAccess } from "./hooks/useRosterAccess.js";
 import Navbar from "./components/NavBar.jsx";
-import InstallAppBanner from "./components/InstallAppBanner.jsx";
 import LoginModal from "./components/LoginModal.jsx";
 import SalesPage from "./pages/SalesPage.jsx";
 import KnocksPage from "./pages/KnocksPage.jsx";
@@ -35,7 +34,6 @@ export default function App() {
     <div className="min-h-screen bg-white/30 backdrop-blur-xl backdrop-saturate-150 relative">
       <div className="fixed inset-0 pointer-events-none bg-[url('/noise.png')] opacity-10 mix-blend-soft-light" />
       <BrowserRouter>
-        <InstallAppBanner />
         {showNav && (
           <Navbar
             hidden={navHidden}
