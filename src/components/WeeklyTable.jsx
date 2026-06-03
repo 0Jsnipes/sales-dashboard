@@ -130,6 +130,7 @@ export default function WeeklyTable({
   const [importStatus, setImportStatus] = useState("");
   const attFileInputRef = useRef(null);
   const tmobileFileInputRef = useRef(null);
+  const knockFileInputRef = useRef(null);
   const showHeaderActions = canEdit || rows.length > 0;
 
   // Header dates for Mon..Sun
@@ -792,6 +793,107 @@ export default function WeeklyTable({
     }
   };
 
+  const handleKnocksImport = async (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      if (metricKey !== "knocks") {
+        setImportStatus("Knocks import is only available on the knocks grid.");
+        return;
+      }
+
+      setImportStatus("Reading knock report...");
+
+      const targetDates = getImportTargetDates();
+      const targetWeekISO = toLocalISO(startOfLocalWeek(targetDates[0]));
+
+      if (weekISO !== targetWeekISO) {
+        setImportStatus(
+          `Import failed. This upload targets ${formatDateList(
+            targetDates
+          )}, which belongs to the week of ${targetWeekISO}.`
+        );
+        return;
+      }
+
+      const targetDateIds = targetDates.map((date) => toLocalISO(date));
+      const parsedReport = await parseKnockReportByDate(file, targetDateIds);
+      const snap = await getDocs(collection(db, base, weekISO, "reps"));
+      const allReps = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((rep) => !rep.deleted);
+
+      let matchedCount = 0;
+      const unmatchedNames = [];
+
+      for (const targetDate of targetDates) {
+        const dateId = toLocalISO(targetDate);
+        const knocksForDate = parsedReport.byDate[dateId] || {};
+        const targetDayIndex = getDayIndexWithinWeek(targetDate, weekISO);
+
+        for (const [repMatchKey, knockData] of Object.entries(knocksForDate)) {
+          const matchingRep = allReps.find(
+            (rep) => getRepMatchKey(rep.name) === repMatchKey
+          );
+
+          if (!matchingRep) {
+            if (
+              repMatchKey &&
+              !unmatchedNames.some((name) => getRepMatchKey(name) === repMatchKey)
+            ) {
+              unmatchedNames.push(knockData.repNameFromReport);
+            }
+            continue;
+          }
+
+          const knocks = Array.isArray(matchingRep.knocks)
+            ? [...matchingRep.knocks]
+            : Array(7).fill(0);
+
+          knocks[targetDayIndex] =
+            clampNum(knocks[targetDayIndex]) + knockData.totalKnocks;
+          matchingRep.knocks = knocks;
+
+          await setDoc(
+            doc(db, base, weekISO, "reps", matchingRep.id),
+            {
+              name: matchingRep.name || "",
+              manager: matchingRep.manager || "",
+              team: matchingRep.team || "",
+              salesGoal: clampNum(matchingRep.salesGoal),
+              knocksGoal: clampNum(matchingRep.knocksGoal),
+              knocks,
+            },
+            { merge: true }
+          );
+
+          matchedCount += 1;
+        }
+      }
+
+      setImportStatus(
+        unmatchedNames.length > 0
+          ? `Knocks import complete for ${formatDayList(
+              targetDates,
+              weekISO
+            )}. Updated ${matchedCount} reps. Unmatched: ${unmatchedNames.join(
+              ", "
+            )}`
+          : `Knocks import complete for ${formatDayList(
+              targetDates,
+              weekISO
+            )}. Updated ${matchedCount} reps.`
+      );
+    } catch (error) {
+      console.error(error);
+      setImportStatus("Knocks import failed. Check the console for details.");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
   return (
     <div
       className={`rounded-2xl bg-base-100 shadow ${
@@ -845,6 +947,24 @@ export default function WeeklyTable({
                 </button>
               </>
             )}
+            {canEdit && metricKey === "knocks" && (
+              <>
+                <input
+                  ref={knockFileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={handleKnocksImport}
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm h-10 min-h-10 rounded-xl border-0 bg-white px-4 text-slate-700 shadow-sm transition hover:bg-slate-100 hover:text-slate-900"
+                  onClick={() => knockFileInputRef.current?.click()}
+                >
+                  <span>Knocks upload</span>
+                </button>
+              </>
+            )}
             {canEdit && <div className="hidden h-6 w-px bg-slate-200 sm:block" aria-hidden="true" />}
             {canEdit && (
               <button
@@ -859,7 +979,7 @@ export default function WeeklyTable({
         )}
       </div>
 
-      {canEdit && metricKey === "sales" && importStatus && (
+      {canEdit && (metricKey === "sales" || metricKey === "knocks") && importStatus && (
         <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
           {importStatus}
         </div>
@@ -1226,8 +1346,81 @@ async function tallyTMobileSalesByDates(file, targetDates) {
   return talliesByDate;
 }
 
+async function parseKnockReportByDate(file, allowedDateIds = []) {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, {
+    type: "array",
+    cellDates: true,
+  });
+  const sheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, {
+    defval: "",
+  });
+  const allowedDateSet = new Set(allowedDateIds);
+  const byDate = {};
+  const skippedRows = [];
+
+  for (const row of rows) {
+    const rawRep = cleanCell(row.Rep);
+    const repMatchKey = getRepMatchKey(rawRep);
+    const status = cleanCell(row.Status);
+    const recordCount = safePositiveNumber(row["Record Count"], 1);
+    const dispositionDate = parseDispositionDate(row["Disposition Time (Eastern)"]);
+
+    if (!rawRep || !repMatchKey || !dispositionDate) {
+      skippedRows.push({
+        reason: "Missing rep name or disposition date",
+        row,
+      });
+      continue;
+    }
+
+    if (allowedDateSet.size > 0 && !allowedDateSet.has(dispositionDate)) {
+      continue;
+    }
+
+    if (!byDate[dispositionDate]) {
+      byDate[dispositionDate] = {};
+    }
+
+    if (!byDate[dispositionDate][repMatchKey]) {
+      byDate[dispositionDate][repMatchKey] = {
+        repNameFromReport: rawRep,
+        repMatchKey,
+        totalKnocks: 0,
+        statuses: {},
+      };
+    }
+
+    byDate[dispositionDate][repMatchKey].totalKnocks += recordCount;
+
+    if (status) {
+      byDate[dispositionDate][repMatchKey].statuses[status] =
+        (byDate[dispositionDate][repMatchKey].statuses[status] || 0) + recordCount;
+    }
+  }
+
+  return {
+    sheetName,
+    totalRows: rows.length,
+    targetDates: allowedDateIds,
+    byDate,
+    skippedRows,
+  };
+}
+
 function hasValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== "";
+}
+
+function cleanCell(value) {
+  return String(value ?? "").trim();
+}
+
+function safePositiveNumber(value, fallback = 1) {
+  const num = Number(value);
+  return Number.isFinite(num) && num > 0 ? num : fallback;
 }
 
 function normalizeDate(value) {
@@ -1253,8 +1446,50 @@ function normalizeName(value) {
     .replace(/\s+/g, " ");
 }
 
+function normalizeRepName(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/\s*-\s*ab\s*marketing\s*/gi, "")
+    .replace(/\s*-\s*a\s*b\s*marketing\s*/gi, "")
+    .replace(/\bab\s*marketing\b/gi, "")
+    .replace(/\ba\s*b\s*marketing\b/gi, "")
+    .replace(/\b(sr|jr|ii|iii|iv)\b/gi, "")
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getRepMatchKey(value) {
+  return normalizeRepName(value);
+}
+
 function toDateString(date) {
   return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+}
+
+function formatDateId(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function parseDispositionDate(value) {
+  if (!value) return null;
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return formatDateId(value);
+  }
+
+  const raw = String(value).trim();
+  const parsed = new Date(raw);
+
+  if (!Number.isNaN(parsed.getTime())) {
+    return formatDateId(parsed);
+  }
+
+  return null;
 }
 
 function createEmptyTallies(targetDates) {
