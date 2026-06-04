@@ -1,7 +1,11 @@
 export const normalizeEmail = (email) => (email || "").trim().toLowerCase();
 
 export const performanceAllowlist = new Set(
-  ["snipes1995@gmail.com", "j.sexton@abenergymarketing.com"].map(normalizeEmail)
+  [
+    "snipes1995@gmail.com",
+    "j.sexton@abenergymarketing.com",
+    "john@me.com",
+  ].map(normalizeEmail)
 );
 
 export const rosterViewAllowlist = new Set(

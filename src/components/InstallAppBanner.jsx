@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+/*import { useEffect, useState } from "react";
 
 function isIosDevice() {
   return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
@@ -82,4 +82,8 @@ export default function InstallAppBanner() {
       </div>
     </div>
   );
+}
+*/* For now, we will hide the install banner as the PWA support is not fully implemented yet. */
+export default function InstallAppBanner() {
+  return null;
 }
