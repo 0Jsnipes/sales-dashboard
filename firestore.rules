@@ -29,6 +29,9 @@ service cloud.firestore {
     function canEditKnocks() { return hasPerm("canEditKnocks"); }
     function canEditRoster() { return hasPerm("canEditRoster"); }
     function canEditOnboarding() { return hasPerm("canEditOnboarding"); }
+    function canEditAnything() {
+      return canEditSales() || canEditKnocks() || canEditRoster() || canEditOnboarding();
+    }
 
     function onboardingOnly() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["onboarding"]);
@@ -86,11 +89,12 @@ service cloud.firestore {
 
     match /auditLogs/{docId} {
       allow read: if isAdminUser();
-      allow write: if isAdminUser();
+      allow write: if canEditAnything();
     }
 
     match /sharedMaps/{mapId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow write: if canEditAnything();
     }
 
     match /{document=**} {

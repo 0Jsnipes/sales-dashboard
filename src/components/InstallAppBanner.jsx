@@ -83,7 +83,7 @@ export default function InstallAppBanner() {
     </div>
   );
 }
-*/* For now, we will hide the install banner as the PWA support is not fully implemented yet. */
+*//* For now, we will hide the install banner as the PWA support is not fully implemented yet. */
 export default function InstallAppBanner() {
   return null;
 }
