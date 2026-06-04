@@ -73,17 +73,17 @@ service cloud.firestore {
     }
 
     match /roster/{repId} {
-      allow read: if isAdminUser();
+      allow read: if isSignedIn();
       allow write: if canEditRoster() || (canEditOnboarding() && onboardingOnly());
     }
 
     match /rosterOptions/{docId} {
-      allow read: if isAdminUser();
+      allow read: if isSignedIn();
       allow write: if canEditRoster();
     }
 
     match /rosterTerminated/{docId} {
-      allow read: if isAdminUser();
+      allow read: if isSignedIn();
       allow write: if canEditRoster();
     }
 

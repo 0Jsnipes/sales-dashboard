@@ -9,14 +9,21 @@ function rosterEntryMatchesEmail(entry, email) {
 
 export function useRosterAccess(email, isAdmin) {
   const normalizedEmail = normalizeEmail(email);
+  const isSignedIn = !!normalizedEmail;
   const isAllowlisted = isEmailAllowed(rosterViewAllowlist, normalizedEmail);
   const [hasRosterEntry, setHasRosterEntry] = useState(false);
   const [loading, setLoading] = useState(
-    !!normalizedEmail && !isAdmin && !isAllowlisted
+    !!normalizedEmail && !isAdmin && !isAllowlisted && !isSignedIn
   );
 
   useEffect(() => {
-    if (!normalizedEmail || isAdmin || isAllowlisted) {
+    if (!normalizedEmail) {
+      setHasRosterEntry(false);
+      setLoading(false);
+      return undefined;
+    }
+
+    if (isAdmin || isAllowlisted || isSignedIn) {
       setHasRosterEntry(false);
       setLoading(false);
       return undefined;
@@ -43,7 +50,7 @@ export function useRosterAccess(email, isAdmin) {
   }, [isAdmin, isAllowlisted, normalizedEmail]);
 
   return {
-    canViewRoster: !!isAdmin || isAllowlisted || hasRosterEntry,
+    canViewRoster: !!isAdmin || isAllowlisted || hasRosterEntry || isSignedIn,
     hasRosterEntry,
     loading,
   };
