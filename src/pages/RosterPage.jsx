@@ -35,6 +35,7 @@ export default function RosterPage({
     program: [],
   });
   const [managerFilter, setManagerFilter] = useState("All");
+  const [addedDateFilter, setAddedDateFilter] = useState("");
 
   // form state
   const [name, setName] = useState("");
@@ -267,9 +268,24 @@ export default function RosterPage({
   }, [reps]);
 
   const visibleReps = useMemo(() => {
-    if (managerFilter === "All") return reps;
-    return reps.filter((r) => (r.manager || "") === managerFilter);
-  }, [reps, managerFilter]);
+    return reps.filter((r) => {
+      if (managerFilter !== "All" && (r.manager || "") !== managerFilter) {
+        return false;
+      }
+      if (!addedDateFilter) return true;
+      return matchesDateFilter(r.createdAt, addedDateFilter);
+    });
+  }, [reps, managerFilter, addedDateFilter]);
+
+  const visibleTerminated = useMemo(() => {
+    return terminated.filter((r) => {
+      if (managerFilter !== "All" && (r.manager || "") !== managerFilter) {
+        return false;
+      }
+      if (!addedDateFilter) return true;
+      return matchesDateFilter(r.deletedAt, addedDateFilter);
+    });
+  }, [terminated, managerFilter, addedDateFilter]);
 
   const allVisibleSelected =
     visibleReps.length > 0 &&
@@ -776,7 +792,10 @@ export default function RosterPage({
     });
   };
 
-  const parseLocalISODate = (value) => {
+  const filteredRowCount = showTerminated ? visibleTerminated.length : visibleReps.length;
+  const totalRowCount = showTerminated ? terminated.length : reps.length;
+
+  function parseLocalISODate(value) {
     if (!value) return null;
     if (value?.toDate) return value.toDate();
     if (typeof value === "string") {
@@ -791,7 +810,17 @@ export default function RosterPage({
       if (!Number.isNaN(parsed.getTime())) return parsed;
     }
     return null;
-  };
+  }
+
+  function matchesDateFilter(value, filterISO) {
+    if (!filterISO) return true;
+    const date = parseLocalISODate(value);
+    if (!date) return false;
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}` === filterISO;
+  }
 
   const formatTerminationEmailDate = (dateObj) => {
     if (!dateObj || Number.isNaN(dateObj.getTime?.())) return "N/A";
@@ -1208,8 +1237,26 @@ export default function RosterPage({
               ))}
             </select>
           </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">{showTerminated ? "Deleted:" : "Added:"}</span>
+            <input
+              type="date"
+              className="input input-sm input-bordered"
+              value={addedDateFilter}
+              onChange={(e) => setAddedDateFilter(e.target.value)}
+            />
+            {addedDateFilter ? (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setAddedDateFilter("")}
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
           <span className="text-xs opacity-70">
-            Showing {visibleReps.length} of {reps.length} reps
+            Showing {filteredRowCount} of {totalRowCount} reps
           </span>
           <button
             type="button"
@@ -1579,7 +1626,7 @@ export default function RosterPage({
                 [&>tr>td]:border-b [&>tr>td]:border-slate-200
               "
             >
-              {(showTerminated ? terminated : visibleReps).map((r) => {
+              {(showTerminated ? visibleTerminated : visibleReps).map((r) => {
                 const isEditing = !showTerminated && editingId === r.id;
                 const progress = getRefProgress(r);
                 const isEmailed = showTerminated && !!r.terminationEmailSentAt;
@@ -1868,15 +1915,15 @@ export default function RosterPage({
                 );
               })}
 
-              {(showTerminated ? terminated : visibleReps).length === 0 && (
+              {(showTerminated ? visibleTerminated : visibleReps).length === 0 && (
                 <tr>
                   <td
                     colSpan={canEditRoster ? (showTerminated ? 6 : 7) : 5}
                     className="py-6 text-center text-sm text-slate-500"
                   >
                     {showTerminated
-                      ? "No terminated reps logged yet."
-                      : "No reps found for this manager."}
+                      ? "No terminated reps found for the current filters."
+                      : "No reps found for the current filters."}
                   </td>
                 </tr>
               )}
