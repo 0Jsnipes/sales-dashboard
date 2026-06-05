@@ -3,6 +3,7 @@ import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { defaultProviderColors, starterAreas } from "../lib/coverageMapData.js";
 import { db } from "../lib/firebase.js";
 import { useAuthRole } from "../hooks/useAuth.js";
+import NormalLeadsFormatter from "../components/NormalLeadsFormatter.jsx";
 
 const NOTES_STORAGE_KEY = "coverage-map-notes";
 const NOTES_DRAFT_STORAGE_KEY = "coverage-map-notes-draft";
@@ -10,6 +11,7 @@ const COLORS_STORAGE_KEY = "coverage-map-colors";
 const HEX_OVERRIDES_STORAGE_KEY = "coverage-map-hex-overrides";
 const SHARED_MAP_DOC_PATH = ["sharedMaps", "coverageMap"];
 const HEX_RADIUS_DEGREES = 0.33;
+const LEAD_HIGHLIGHT_COLOR = "#a3e635";
 const MAP_BOUNDS = {
   minLat: 24.2,
   maxLat: 49.6,
@@ -126,6 +128,69 @@ function createHexPolygon(centerLat, centerLng, radius) {
   });
 }
 
+function getHexDistance(pointA, pointB) {
+  const [latA, lngA] = pointA;
+  const [latB, lngB] = pointB;
+  const avgLatRadians = (((latA + latB) / 2) * Math.PI) / 180;
+  const latDelta = latA - latB;
+  const lngDelta = (lngA - lngB) * Math.cos(avgLatRadians);
+  return Math.sqrt(latDelta * latDelta + lngDelta * lngDelta);
+}
+
+async function geocodeZipCode(zipCode) {
+  const providers = [
+    async () => {
+      const endpoint = new URL("https://nominatim.openstreetmap.org/search");
+      endpoint.searchParams.set("country", "United States");
+      endpoint.searchParams.set("postalcode", zipCode);
+      endpoint.searchParams.set("format", "jsonv2");
+      endpoint.searchParams.set("limit", "1");
+
+      const response = await fetch(endpoint.toString(), {
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      if (!response.ok) return null;
+
+      const results = await response.json();
+      const match = results?.[0];
+      if (!match) return null;
+
+      return [Number(match.lat), Number(match.lon)];
+    },
+    async () => {
+      const response = await fetch(`https://api.zippopotam.us/us/${zipCode}`, {
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      if (!response.ok) return null;
+
+      const data = await response.json();
+      const place = data?.places?.[0];
+      if (!place) return null;
+
+      return [Number(place.latitude), Number(place.longitude)];
+    },
+  ];
+
+  for (const provider of providers) {
+    try {
+      const result = await provider();
+      if (result && Number.isFinite(result[0]) && Number.isFinite(result[1])) {
+        return result;
+      }
+    } catch (error) {
+      console.warn(`ZIP geocoding provider failed for ${zipCode}`, error);
+    }
+  }
+
+  return null;
+}
+
 function generateHexGrid() {
   const hexWidth = Math.sqrt(3) * HEX_RADIUS_DEGREES;
   const rowStep = HEX_RADIUS_DEGREES * 1.5;
@@ -192,6 +257,12 @@ export default function CoverageMapPage() {
   const [hexOverrides, setHexOverrides] = useState(() =>
     readLocalStorageValue(HEX_OVERRIDES_STORAGE_KEY, {})
   );
+  const [leadHighlightHexes, setLeadHighlightHexes] = useState([]);
+  const [leadHighlightMeta, setLeadHighlightMeta] = useState({
+    zipCodes: [],
+    failedZipCodes: [],
+    loading: false,
+  });
   const [activePaint, setActivePaint] = useState("att");
   const [sharedStateError, setSharedStateError] = useState("");
   const { ready: leafletReady, error: leafletError } = useLeaflet();
@@ -213,8 +284,10 @@ export default function CoverageMapPage() {
       notes,
       providerColors,
       hexOverrides,
+      leadHighlightHexes,
+      leadHighlightZipCodes: leadHighlightMeta.zipCodes,
     }),
-    [hexOverrides, notes, providerColors]
+    [hexOverrides, leadHighlightHexes, leadHighlightMeta.zipCodes, notes, providerColors]
   );
 
   useEffect(() => {
@@ -260,6 +333,12 @@ export default function CoverageMapPage() {
         if (snapshot.exists()) {
           const data = snapshot.data() || {};
           const nextNotes = typeof data.notes === "string" ? data.notes : "";
+          const nextLeadHighlightHexes = Array.isArray(data.leadHighlightHexes)
+            ? data.leadHighlightHexes.filter((value) => typeof value === "string")
+            : [];
+          const nextLeadHighlightZipCodes = Array.isArray(data.leadHighlightZipCodes)
+            ? data.leadHighlightZipCodes.filter((value) => typeof value === "string")
+            : [];
           setNotes(nextNotes);
           setDraftNotes((current) => (current === notesRef.current ? nextNotes : current));
           setProviderColors({
@@ -267,6 +346,13 @@ export default function CoverageMapPage() {
             ...(data.providerColors || {}),
           });
           setHexOverrides(data.hexOverrides || {});
+          setLeadHighlightHexes(nextLeadHighlightHexes);
+          setLeadHighlightMeta((current) => ({
+            ...current,
+            zipCodes: nextLeadHighlightZipCodes,
+            failedZipCodes: [],
+            loading: false,
+          }));
           lastSavedPayloadRef.current = JSON.stringify({
             notes: nextNotes,
             providerColors: {
@@ -274,12 +360,16 @@ export default function CoverageMapPage() {
               ...(data.providerColors || {}),
             },
             hexOverrides: data.hexOverrides || {},
+            leadHighlightHexes: nextLeadHighlightHexes,
+            leadHighlightZipCodes: nextLeadHighlightZipCodes,
           });
         } else {
           const initialPayload = sharedPayloadRef.current || {
             notes: "",
             providerColors: defaultProviderColors,
             hexOverrides: {},
+            leadHighlightHexes: [],
+            leadHighlightZipCodes: [],
           };
           lastSavedPayloadRef.current = JSON.stringify(initialPayload);
           await setDoc(
@@ -361,17 +451,28 @@ export default function CoverageMapPage() {
 
     hexGrid.forEach((hex) => {
       const assignedProvider = visibleAssignments[hex.id];
-      const fillColor = assignedProvider ? providerColors[assignedProvider] : "#ffffff";
+      const isLeadHighlighted = leadHighlightHexes.includes(hex.id);
+      const fillColor = isLeadHighlighted
+        ? LEAD_HIGHLIGHT_COLOR
+        : assignedProvider
+        ? providerColors[assignedProvider]
+        : "#ffffff";
 
       const layer = window.L.polygon(hex.polygon, {
-        color: assignedProvider ? fillColor : "#cbd5e1",
+        color: isLeadHighlighted
+          ? "#65a30d"
+          : assignedProvider
+          ? fillColor
+          : "#cbd5e1",
         fillColor,
-        fillOpacity: assignedProvider ? 0.58 : 0.04,
-        weight: assignedProvider ? 1.2 : 0.7,
+        fillOpacity: isLeadHighlighted ? 0.68 : assignedProvider ? 0.58 : 0.04,
+        weight: isLeadHighlighted ? 1.6 : assignedProvider ? 1.2 : 0.7,
       });
 
       layer.bindTooltip(
-        assignedProvider
+        isLeadHighlighted
+          ? "Normal leads ZIP area"
+          : assignedProvider
           ? `${providerMeta[assignedProvider].label} hex`
           : "Unassigned hex",
         { sticky: true }
@@ -401,7 +502,28 @@ export default function CoverageMapPage() {
       );
       hasFitBoundsRef.current = true;
     }
-  }, [activePaint, hexGrid, leafletReady, providerColors, setHexOverrides, visibleAssignments]);
+  }, [
+    activePaint,
+    hexGrid,
+    leadHighlightHexes,
+    leafletReady,
+    providerColors,
+    setHexOverrides,
+    visibleAssignments,
+  ]);
+
+  useEffect(() => {
+    if (!leafletReady || !mapRef.current || leadHighlightHexes.length === 0) return;
+
+    const highlightedPolygons = hexGrid.filter((hex) => leadHighlightHexes.includes(hex.id));
+    if (!highlightedPolygons.length) return;
+
+    const bounds = highlightedPolygons.flatMap((hex) => hex.polygon);
+    mapRef.current.fitBounds(bounds, {
+      padding: [24, 24],
+      maxZoom: 10,
+    });
+  }, [hexGrid, leadHighlightHexes, leafletReady]);
 
   const updateProviderColor = (provider, color) => {
     setProviderColors((current) => ({ ...current, [provider]: color }));
@@ -409,6 +531,68 @@ export default function CoverageMapPage() {
 
   const clearPaintedHexes = () => {
     setHexOverrides({});
+  };
+
+  const clearLeadHighlights = () => {
+    setLeadHighlightHexes([]);
+    setLeadHighlightMeta({
+      zipCodes: [],
+      failedZipCodes: [],
+      loading: false,
+    });
+  };
+
+  const handleNormalLeadsFormatted = async (prepared) => {
+    const zipCodes = prepared?.zipCodes || [];
+    if (!zipCodes.length) {
+      setLeadHighlightHexes([]);
+      setLeadHighlightMeta({
+        zipCodes: [],
+        failedZipCodes: [],
+        loading: false,
+      });
+      return;
+    }
+
+    setLeadHighlightMeta({
+      zipCodes,
+      failedZipCodes: [],
+      loading: true,
+    });
+    setSharedStateError("");
+
+    const highlightedHexIds = new Set();
+    const failedZipCodes = [];
+
+    for (const zipCode of zipCodes) {
+      try {
+        const center = await geocodeZipCode(zipCode);
+        if (!center) {
+          failedZipCodes.push(zipCode);
+          continue;
+        }
+
+        const nearbyHexes = hexGrid
+          .map((hex) => ({
+            id: hex.id,
+            distance: getHexDistance(center, hex.center),
+          }))
+          .sort((a, b) => a.distance - b.distance)
+          .filter((hex, index) => index < 7 || hex.distance <= HEX_RADIUS_DEGREES * 1.8);
+
+        nearbyHexes.forEach((hex) => highlightedHexIds.add(hex.id));
+      } catch (error) {
+        console.error(error);
+        failedZipCodes.push(zipCode);
+      }
+    }
+
+    setLeadHighlightHexes(Array.from(highlightedHexIds));
+    setLeadHighlightMeta({
+      zipCodes,
+      failedZipCodes,
+      loading: false,
+    });
   };
 
   const saveNotes = () => {
@@ -432,6 +616,21 @@ export default function CoverageMapPage() {
                 Click hexes on the map to paint AT&T, T-Fiber, or shared AT&T and
                 T-Fiber coverage and keep notes in the sidebar.
               </p>
+              {leadHighlightMeta.zipCodes.length > 0 ? (
+                <p className="mt-3 text-sm font-medium text-lime-700">
+                  Normal leads highlighted for ZIPs: {leadHighlightMeta.zipCodes.join(", ")}
+                </p>
+              ) : null}
+              {leadHighlightMeta.failedZipCodes.length > 0 ? (
+                <p className="mt-2 text-sm font-medium text-amber-700">
+                  Could not map ZIPs: {leadHighlightMeta.failedZipCodes.join(", ")}
+                </p>
+              ) : null}
+              {leadHighlightMeta.loading ? (
+                <p className="mt-2 text-sm font-medium text-slate-600">
+                  Mapping ZIP highlights...
+                </p>
+              ) : null}
               {sharedStateError ? (
                 <p className="mt-3 text-sm font-medium text-amber-700">{sharedStateError}</p>
               ) : null}
@@ -484,13 +683,22 @@ export default function CoverageMapPage() {
         <div className="rounded-3xl border border-slate-200 bg-white/85 p-5 shadow-sm backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-lg font-bold text-slate-900">Provider Colors</h2>
-            <button
-              type="button"
-              onClick={clearPaintedHexes}
-              className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600"
-            >
-              Clear Manual Edits
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={clearLeadHighlights}
+                className="rounded-full border border-lime-200 px-3 py-1 text-xs font-semibold text-lime-700"
+              >
+                Clear Lead Highlights
+              </button>
+              <button
+                type="button"
+                onClick={clearPaintedHexes}
+                className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600"
+              >
+                Clear Manual Edits
+              </button>
+            </div>
           </div>
           <div className="mt-4 space-y-3">
             {Object.entries(providerMeta)
@@ -535,6 +743,8 @@ export default function CoverageMapPage() {
             </div>
           </div>
         </div>
+
+        <NormalLeadsFormatter onFormatComplete={handleNormalLeadsFormatted} />
       </section>
 
       <section className="relative min-h-[720px] overflow-hidden rounded-[32px] border border-slate-200 bg-white/75 shadow-sm backdrop-blur">
@@ -555,6 +765,10 @@ export default function CoverageMapPage() {
                     <span>{provider.label}</span>
                   </div>
                 ))}
+              <div className="flex items-center gap-2 text-sm text-slate-700">
+                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: LEAD_HIGHLIGHT_COLOR }} />
+                <span>Normal Leads ZIPs</span>
+              </div>
             </div>
           </div>
 
