@@ -244,6 +244,23 @@ function applyHexPresentation(layer, hexId, visibleAssignments, leadHighlightSet
   }
 }
 
+function ChevronIcon({ open }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      fill="none"
+      className={`h-4 w-4 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m5.5 7.5 4.5 5 4.5-5" />
+    </svg>
+  );
+}
+
 export default function CoverageMapPage() {
   const workerRef = useRef(null);
   const workerRequestIdRef = useRef(0);
@@ -284,6 +301,8 @@ export default function CoverageMapPage() {
     loading: false,
   });
   const [activePaint, setActivePaint] = useState("att");
+  const [paintToolOpen, setPaintToolOpen] = useState(true);
+  const [providerColorsOpen, setProviderColorsOpen] = useState(true);
   const [sharedStateError, setSharedStateError] = useState("");
   const { ready: leafletReady, error: leafletError } = useLeaflet();
   const { user, isDemo } = useAuthRole();
@@ -795,17 +814,17 @@ export default function CoverageMapPage() {
                 <p className="mt-3 text-sm font-medium text-amber-700">{sharedStateError}</p>
               ) : null}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-stretch gap-3 sm:justify-end">
               <button
                 type="button"
-                className="rounded-full border border-lime-300 bg-lime-500 px-4 py-2 text-sm font-semibold text-slate-950"
+                className="inline-flex h-12 min-w-[136px] items-center justify-center rounded-2xl border border-lime-300 bg-lime-400 px-5 text-center text-sm font-semibold text-slate-950 shadow-sm transition hover:-translate-y-0.5 hover:bg-lime-300"
                 onClick={() => setLeadUploadOpen(true)}
               >
                 ATT Leads
               </button>
               <button
                 type="button"
-                className="rounded-full border border-slate-300 bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+                className="inline-flex h-12 min-w-[136px] items-center justify-center rounded-2xl border border-slate-300 bg-slate-900 px-5 text-center text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-800"
                 onClick={() => setNotesOpen(true)}
               >
                 Open Notes
@@ -815,84 +834,124 @@ export default function CoverageMapPage() {
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white/85 p-5 shadow-sm backdrop-blur">
-          <h2 className="text-lg font-bold text-slate-900">Paint Tool</h2>
-          <div className="mt-4 grid gap-3">
-            {Object.entries(providerMeta).map(([providerKey, provider]) => {
-              const isColorProvider = providerKey !== "clear";
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 text-left"
+            onClick={() => setPaintToolOpen((current) => !current)}
+            aria-expanded={paintToolOpen}
+          >
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Paint Tool</h2>
+              <p className="mt-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                Click to {paintToolOpen ? "collapse" : "expand"}
+              </p>
+            </div>
+            <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 shadow-sm">
+              <ChevronIcon open={paintToolOpen} />
+            </div>
+          </button>
 
-              return (
-                <button
-                  key={providerKey}
-                  type="button"
-                  onClick={() => setActivePaint(providerKey)}
-                  className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left ${
-                    activePaint === providerKey
-                      ? "border-slate-900 bg-slate-900 text-white"
-                      : "border-slate-200 bg-white text-slate-800"
-                  }`}
-                >
-                  <span className="text-sm font-semibold">{provider.label}</span>
-                  {isColorProvider ? (
-                    <span
-                      className="h-4 w-4 rounded-full border border-white/30"
-                      style={{ backgroundColor: providerColors[providerKey] }}
-                    />
-                  ) : (
-                    <span className="text-xs uppercase tracking-[0.2em]">Erase</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          <p className="mt-4 text-xs leading-5 text-slate-500">
-            Active tool applies when you click a hex. Use Clear to remove a filled hex.
-          </p>
+          {paintToolOpen ? (
+            <>
+              <div className="mt-4 grid gap-3">
+                {Object.entries(providerMeta).map(([providerKey, provider]) => {
+                  const isColorProvider = providerKey !== "clear";
+
+                  return (
+                    <button
+                      key={providerKey}
+                      type="button"
+                      onClick={() => setActivePaint(providerKey)}
+                      className={`flex items-center justify-between rounded-2xl border px-4 py-3 text-left ${
+                        activePaint === providerKey
+                          ? "border-slate-900 bg-slate-900 text-white"
+                          : "border-slate-200 bg-white text-slate-800"
+                      }`}
+                    >
+                      <span className="text-sm font-semibold">{provider.label}</span>
+                      {isColorProvider ? (
+                        <span
+                          className="h-4 w-4 rounded-full border border-white/30"
+                          style={{ backgroundColor: providerColors[providerKey] }}
+                        />
+                      ) : (
+                        <span className="text-xs uppercase tracking-[0.2em]">Erase</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-4 text-xs leading-5 text-slate-500">
+                Active tool applies when you click a hex. Use Clear to remove a filled hex.
+              </p>
+            </>
+          ) : null}
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white/85 p-5 shadow-sm backdrop-blur">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-lg font-bold text-slate-900">Provider Colors</h2>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={clearLeadHighlights}
-                className="rounded-full border border-lime-200 px-3 py-1 text-xs font-semibold text-lime-700"
-              >
-                Clear Lead Highlights
-              </button>
-              <button
-                type="button"
-                onClick={clearPaintedHexes}
-                className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600"
-              >
-                Clear Manual Edits
-              </button>
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 text-left"
+            onClick={() => setProviderColorsOpen((current) => !current)}
+            aria-expanded={providerColorsOpen}
+          >
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Provider Colors</h2>
+              <p className="mt-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                Click to {providerColorsOpen ? "collapse" : "expand"}
+              </p>
             </div>
-          </div>
-          <div className="mt-4 space-y-3">
-            {Object.entries(providerMeta)
-              .filter(([providerKey]) => providerKey !== "clear")
-              .map(([providerKey, provider]) => (
-                <label
-                  key={providerKey}
-                  className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3"
-                >
-                  <span className="text-sm font-semibold text-slate-700">{provider.label}</span>
-                  <div className="flex items-center gap-3">
-                    <span
-                      className="h-4 w-4 rounded-full border border-slate-300"
-                      style={{ backgroundColor: providerColors[providerKey] }}
-                    />
-                    <input
-                      type="color"
-                      value={providerColors[providerKey]}
-                      onChange={(event) => updateProviderColor(providerKey, event.target.value)}
-                      className="h-10 w-14 cursor-pointer rounded-lg border border-slate-200 bg-transparent p-1"
-                    />
-                  </div>
-                </label>
-              ))}
-          </div>
+            <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 shadow-sm">
+              <ChevronIcon open={providerColorsOpen} />
+            </div>
+          </button>
+
+          {providerColorsOpen ? (
+            <>
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={clearLeadHighlights}
+                    className="rounded-full border border-lime-200 px-3 py-1 text-xs font-semibold text-lime-700"
+                  >
+                    Clear Lead Highlights
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearPaintedHexes}
+                    className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600"
+                  >
+                    Clear Manual Edits
+                  </button>
+                </div>
+              </div>
+              <div className="mt-4 space-y-3">
+                {Object.entries(providerMeta)
+                  .filter(([providerKey]) => providerKey !== "clear")
+                  .map(([providerKey, provider]) => (
+                    <label
+                      key={providerKey}
+                      className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3"
+                    >
+                      <span className="text-sm font-semibold text-slate-700">{provider.label}</span>
+                      <div className="flex items-center gap-3">
+                        <span
+                          className="h-4 w-4 rounded-full border border-slate-300"
+                          style={{ backgroundColor: providerColors[providerKey] }}
+                        />
+                        <input
+                          type="color"
+                          value={providerColors[providerKey]}
+                          onChange={(event) => updateProviderColor(providerKey, event.target.value)}
+                          className="h-10 w-14 cursor-pointer rounded-lg border border-slate-200 bg-transparent p-1"
+                        />
+                      </div>
+                    </label>
+                  ))}
+              </div>
+            </>
+          ) : null}
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white/85 p-5 shadow-sm backdrop-blur">
@@ -942,7 +1001,7 @@ export default function CoverageMapPage() {
           <button
             type="button"
             onClick={() => setNotesOpen(true)}
-            className="pointer-events-auto rounded-full border border-slate-200 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm"
+            className="pointer-events-auto inline-flex h-11 min-w-[110px] items-center justify-center rounded-2xl border border-slate-200 bg-white/92 px-4 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-0.5"
           >
             Notes
           </button>

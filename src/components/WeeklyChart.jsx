@@ -151,17 +151,12 @@ export default function WeeklyChart({
     return Math.max(5, Math.ceil((max + 1) / 5) * 5);
   }, [rows]);
 
-  const chartWidth = useMemo(() => {
-    if (!rows || rows.length === 0) return 720;
-    return Math.max(720, rows.length * 76);
-  }, [rows]);
-
   return (
     <section className="glass-panel p-5">
       <SectionIntro
         eyebrow="Chart"
         title={title}
-        description="A weekly roll-up by rep. Phones show simple weekly totals, while larger screens keep the full bar chart."
+        description="A weekly roll-up by rep. Phones show simple weekly totals, while larger screens keep a cleaner bar chart without forcing horizontal scroll."
       />
 
       {rows === null ? (
@@ -199,25 +194,20 @@ export default function WeeklyChart({
             ))}
           </div>
 
-          <div className="mt-5 hidden overflow-x-auto md:block">
-            <div style={{ width: chartWidth, height: 320 }}>
+          <div className="mt-5 hidden md:block">
+            <div style={{ width: "100%", height: 320 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={rows} margin={{ top: 8, right: 12, left: -18, bottom: 28 }}>
+                <BarChart data={rows} margin={{ top: 8, right: 12, left: -18, bottom: 12 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.26)" />
                   <XAxis
                     dataKey="name"
-                    tick={{ fill: CHART_PRIMARY, fontSize: 12 }}
-                    tickMargin={12}
-                    axisLine={false}
-                    tickLine={false}
-                    interval={0}
-                    angle={-24}
-                    textAnchor="end"
+                    hide
                   />
                   <YAxis
                     allowDecimals={false}
                     domain={[0, maxY]}
                     tick={{ fill: CHART_PRIMARY, fontSize: 12 }}
+                    tickMargin={12}
                     axisLine={false}
                     tickLine={false}
                   />
