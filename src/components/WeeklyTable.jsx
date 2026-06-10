@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   addDoc,
   deleteDoc,
@@ -992,6 +993,59 @@ export default function WeeklyTable({
 
   const isSalesUploadMobileFab = canEdit && metricKey === "sales";
   const metricLabel = metricKey === "knocks" ? "Knocks" : "Sales";
+  const mobileSalesUploadFab = isSalesUploadMobileFab
+    ? createPortal(
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[70] md:hidden">
+          <div className="mx-auto flex w-full max-w-7xl justify-end px-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] sm:px-6">
+            <div className="pointer-events-auto flex flex-col items-end gap-2">
+              <div
+                className={`flex flex-col items-end gap-2 transition-all duration-200 ${
+                  mobileSalesUploadOpen
+                    ? "pointer-events-auto translate-y-0 opacity-100"
+                    : "pointer-events-none translate-y-2 opacity-0"
+                }`}
+              >
+                <button
+                  type="button"
+                  className="rounded-2xl border border-slate-200/80 bg-white/92 px-3 py-2 text-[11px] font-semibold text-slate-900 shadow-[0_14px_28px_rgba(9,20,35,0.12)] backdrop-blur"
+                  onClick={() => {
+                    setMobileSalesUploadOpen(false);
+                    attFileInputRef.current?.click();
+                  }}
+                >
+                  ATT Sales
+                </button>
+                <button
+                  type="button"
+                  className="rounded-2xl border border-slate-200/80 bg-white/92 px-3 py-2 text-[11px] font-semibold text-slate-900 shadow-[0_14px_28px_rgba(9,20,35,0.12)] backdrop-blur"
+                  onClick={() => {
+                    setMobileSalesUploadOpen(false);
+                    tmobileFileInputRef.current?.click();
+                  }}
+                >
+                  T-Fiber Sales
+                </button>
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-primary h-12 min-h-12 w-12 rounded-[18px] p-0 shadow-[0_18px_34px_rgba(9,20,35,0.18)]"
+                onClick={() => setMobileSalesUploadOpen((current) => !current)}
+                aria-expanded={mobileSalesUploadOpen}
+                aria-label={
+                  mobileSalesUploadOpen
+                    ? "Close sales upload actions"
+                    : "Open sales upload actions"
+                }
+              >
+                <UploadIcon />
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )
+    : null;
   const mobileSummaryCard =
     inactivitySummary.rows.length > 0 ? (
       <div className="mt-4 grid gap-4 md:hidden">
@@ -1132,54 +1186,7 @@ export default function WeeklyTable({
         )}
       </div>
 
-      {isSalesUploadMobileFab ? (
-        <div className="fixed bottom-5 right-5 z-40 md:hidden">
-          <div className="flex flex-col items-end gap-2">
-            <div
-              className={`flex flex-col items-end gap-2 transition-all duration-200 ${
-                mobileSalesUploadOpen
-                  ? "pointer-events-auto translate-y-0 opacity-100"
-                  : "pointer-events-none translate-y-2 opacity-0"
-              }`}
-            >
-              <button
-                type="button"
-                className="rounded-2xl border border-slate-200/80 bg-white/92 px-3 py-2 text-[11px] font-semibold text-slate-900 shadow-[0_14px_28px_rgba(9,20,35,0.12)] backdrop-blur"
-                onClick={() => {
-                  setMobileSalesUploadOpen(false);
-                  attFileInputRef.current?.click();
-                }}
-              >
-                ATT Sales
-              </button>
-              <button
-                type="button"
-                className="rounded-2xl border border-slate-200/80 bg-white/92 px-3 py-2 text-[11px] font-semibold text-slate-900 shadow-[0_14px_28px_rgba(9,20,35,0.12)] backdrop-blur"
-                onClick={() => {
-                  setMobileSalesUploadOpen(false);
-                  tmobileFileInputRef.current?.click();
-                }}
-              >
-                T-Fiber Sales
-              </button>
-            </div>
-
-            <button
-              type="button"
-              className="btn btn-primary h-12 min-h-12 w-12 rounded-[18px] p-0 shadow-[0_18px_34px_rgba(9,20,35,0.18)]"
-              onClick={() => setMobileSalesUploadOpen((current) => !current)}
-              aria-expanded={mobileSalesUploadOpen}
-              aria-label={
-                mobileSalesUploadOpen
-                  ? "Close sales upload actions"
-                  : "Open sales upload actions"
-              }
-            >
-              <UploadIcon />
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {mobileSalesUploadFab}
 
       {canEdit && (metricKey === "sales" || metricKey === "knocks") && importStatus ? (
         <div className="mt-4 rounded-[22px] border border-slate-200/70 bg-slate-50 px-4 py-3 text-sm text-slate-700">
