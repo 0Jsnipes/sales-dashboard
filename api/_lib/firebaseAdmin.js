@@ -1,4 +1,5 @@
 import admin from "firebase-admin";
+import process from "node:process";
 
 function getServiceAccount() {
   const projectId = process.env.FIREBASE_PROJECT_ID;

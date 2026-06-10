@@ -47,7 +47,7 @@ export function useRosterAccess(email, isAdmin) {
     );
 
     return () => unsub();
-  }, [isAdmin, isAllowlisted, normalizedEmail]);
+  }, [isAdmin, isAllowlisted, isSignedIn, normalizedEmail]);
 
   return {
     canViewRoster: !!isAdmin || isAllowlisted || hasRosterEntry || isSignedIn,

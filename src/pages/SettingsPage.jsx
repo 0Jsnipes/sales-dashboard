@@ -8,8 +8,9 @@ import {
   setDoc,
   updateDoc,
 } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { PageHero, PageShell } from "../components/PageLayout.jsx";
 import { useAuthRole } from "../hooks/useAuth";
+import { db } from "../lib/firebase";
 
 const EMPTY_FORM = {
   uid: "",
@@ -28,21 +29,17 @@ export default function SettingsPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!isSuperAdmin) return;
-    const unsub = onSnapshot(collection(db, "adminUsers"), (snap) => {
-      const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      rows.sort((a, b) => {
-        const ea = (a.email || "").toLowerCase();
-        const eb = (b.email || "").toLowerCase();
-        return ea.localeCompare(eb);
-      });
+    if (!isSuperAdmin) return undefined;
+    const unsubscribe = onSnapshot(collection(db, "adminUsers"), (snapshot) => {
+      const rows = snapshot.docs.map((docRef) => ({ id: docRef.id, ...docRef.data() }));
+      rows.sort((a, b) => (a.email || "").toLowerCase().localeCompare((b.email || "").toLowerCase()));
       setAdmins(rows);
     });
-    return () => unsub();
+    return () => unsubscribe();
   }, [isSuperAdmin]);
 
-  const addAdmin = async (e) => {
-    e.preventDefault();
+  const addAdmin = async (event) => {
+    event.preventDefault();
     setError("");
     const uid = form.uid.trim();
     const email = form.email.trim().toLowerCase();
@@ -97,45 +94,53 @@ export default function SettingsPage() {
   const currentUid = user?.uid || "";
 
   if (loading) {
-    return <div className="p-6 text-slate-600">Loading...</div>;
+    return (
+      <PageShell>
+        <div className="surface-panel px-5 py-8 text-sm text-slate-600">Loading...</div>
+      </PageShell>
+    );
   }
 
   if (!isSuperAdmin) {
-    return <div className="p-6 text-slate-600">Access restricted.</div>;
+    return (
+      <PageShell>
+        <div className="surface-panel px-5 py-8 text-sm text-slate-600">Access restricted.</div>
+      </PageShell>
+    );
   }
 
   return (
-    <main className="mx-auto max-w-5xl p-6 sm:p-8">
-      <div className="rounded-3xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-        <header className="mb-6">
-          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
-            Admin Settings
-          </h1>
-          <p className="text-sm text-slate-600">
-            Manage admin permissions. Each admin needs a Firebase Auth account and UID.
-          </p>
-          <div className="mt-3 text-xs text-slate-500">
-            Your UID: <span className="font-mono">{currentUid || "Unknown"}</span>
-          </div>
-        </header>
+    <PageShell>
+      <PageHero
+        eyebrow="Admin Controls"
+        title="Manage who can change what."
+        description="Super admins can grant or revoke editing access across sales, knocks, roster, and onboarding workflows from one place."
+        stats={[
+          { label: "Admins", value: admins.length || 0 },
+          { label: "Your UID", value: currentUid || "Unknown" },
+          { label: "Sales Access", value: "Configurable" },
+          { label: "Scope", value: "Internal Only" },
+        ]}
+      />
 
-        <form onSubmit={addAdmin} className="rounded-2xl border border-slate-200 p-4">
-          <div className="grid gap-3 md:grid-cols-[1fr_1fr]">
+      <section className="glass-panel p-5">
+        <form onSubmit={addAdmin} className="rounded-[24px] border border-slate-200/70 bg-white/74 p-4">
+          <div className="grid gap-3 md:grid-cols-2">
             <input
-              className="input input-bordered input-sm w-full"
+              className="input input-bordered h-12 w-full"
               placeholder="User UID"
               value={form.uid}
-              onChange={(e) => setForm((prev) => ({ ...prev, uid: e.target.value }))}
+              onChange={(event) => setForm((prev) => ({ ...prev, uid: event.target.value }))}
             />
             <input
-              className="input input-bordered input-sm w-full"
+              className="input input-bordered h-12 w-full"
               placeholder="User email"
               value={form.email}
-              onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
+              onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
             />
           </div>
 
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
               ["canEditSales", "Edit Sales"],
               ["canEditKnocks", "Edit Knocks"],
@@ -144,90 +149,96 @@ export default function SettingsPage() {
             ].map(([key, label]) => (
               <label
                 key={key}
-                className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2"
+                className="flex items-center justify-between rounded-[20px] border border-slate-200/70 bg-slate-50/80 px-4 py-3 text-sm text-slate-700"
               >
                 <span>{label}</span>
                 <input
                   type="checkbox"
                   className="toggle"
                   checked={!!form[key]}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, [key]: e.target.checked }))
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, [key]: event.target.checked }))
                   }
                 />
               </label>
             ))}
           </div>
 
-          {error && <div className="mt-2 text-sm text-error">{error}</div>}
+          {error ? (
+            <div className="mt-4 rounded-[20px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {error}
+            </div>
+          ) : null}
 
           <div className="mt-4 flex justify-end">
-            <button className="btn btn-primary btn-sm" type="submit" disabled={saving}>
+            <button className="btn btn-primary" type="submit" disabled={saving}>
               {saving ? "Saving..." : "Add Admin"}
             </button>
           </div>
         </form>
 
-        <div className="mt-6 overflow-x-auto">
-          <table className="table w-full">
-            <thead className="bg-slate-100/90 text-slate-700 [&>tr>th]:border-b [&>tr>th]:border-slate-200">
-              <tr>
-                <th>Email</th>
-                <th className="min-w-[180px]">UID</th>
-                <th className="text-center">Sales</th>
-                <th className="text-center">Knocks</th>
-                <th className="text-center">Roster</th>
-                <th className="text-center">Onboarding</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody className="[&>tr>td]:border-b [&>tr>td]:border-slate-200">
-              {admins.map((admin) => {
-                const isSelf = admin.id === currentUid;
-                return (
-                  <tr key={admin.id}>
-                    <td className="font-medium">{admin.email || "Unknown"}</td>
-                    <td className="text-xs font-mono text-slate-500">{admin.id}</td>
-                    {[
-                      "canEditSales",
-                      "canEditKnocks",
-                      "canEditRoster",
-                      "canEditOnboarding",
-                    ].map((key) => (
-                      <td key={key} className="text-center">
-                        <input
-                          type="checkbox"
-                          className="toggle toggle-sm"
-                          checked={!!admin[key]}
+        <div className="data-table-shell mt-5">
+          <div className="data-table-scroll">
+            <table className="table w-full min-w-[860px]">
+              <thead className="bg-slate-100/90 text-slate-700 [&>tr>th]:border-b [&>tr>th]:border-slate-200">
+                <tr>
+                  <th>Email</th>
+                  <th className="min-w-[180px]">UID</th>
+                  <th className="text-center">Sales</th>
+                  <th className="text-center">Knocks</th>
+                  <th className="text-center">Roster</th>
+                  <th className="text-center">Onboarding</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody className="[&>tr>td]:border-b [&>tr>td]:border-slate-200">
+                {admins.map((admin) => {
+                  const isSelf = admin.id === currentUid;
+                  return (
+                    <tr key={admin.id}>
+                      <td className="font-medium">{admin.email || "Unknown"}</td>
+                      <td className="text-xs font-mono text-slate-500">{admin.id}</td>
+                      {[
+                        "canEditSales",
+                        "canEditKnocks",
+                        "canEditRoster",
+                        "canEditOnboarding",
+                      ].map((key) => (
+                        <td key={key} className="text-center">
+                          <input
+                            type="checkbox"
+                            className="toggle toggle-sm"
+                            checked={!!admin[key]}
+                            disabled={isSelf}
+                            onChange={(event) => updatePerm(admin.id, key, event.target.checked)}
+                          />
+                        </td>
+                      ))}
+                      <td className="text-right">
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-xs text-error"
+                          onClick={() => removeAdmin(admin.id)}
                           disabled={isSelf}
-                          onChange={(e) => updatePerm(admin.id, key, e.target.checked)}
-                        />
+                        >
+                          Remove
+                        </button>
                       </td>
-                    ))}
-                    <td className="text-right">
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-xs text-error"
-                        onClick={() => removeAdmin(admin.id)}
-                        disabled={isSelf}
-                      >
-                        Remove
-                      </button>
+                    </tr>
+                  );
+                })}
+                {admins.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-6 text-center text-sm text-slate-500">
+                      No admin users yet.
                     </td>
                   </tr>
-                );
-              })}
-              {admins.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-6 text-center text-sm text-slate-500">
-                    No admin users yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
-    </main>
+      </section>
+    </PageShell>
   );
 }

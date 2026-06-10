@@ -54,32 +54,49 @@ export default function LoginModal({ open, onClose }) {
   };
 
   return (
-    <Modal open={open} onClose={onClose} maxWidth="max-w-sm bg-white">
-      <h3 className="text-lg font-semibold">Admin Login</h3>
-      <div className="mt-4 grid gap-3">
-        <input
-          className="input input-bordered"
-          placeholder="Email"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <input
-          className="input input-bordered"
-          placeholder="Password"
-          type="password"
-          value={pw}
-          onChange={(e) => setPw(e.target.value)}
-        />
-      </div>
-      {err && <p className="mt-2 text-sm text-error">{err}</p>}
-      <div className="mt-4 flex justify-end gap-2">
-        <button className="btn btn-ghost" onClick={onClose} disabled={busy}>
-          Cancel
-        </button>
-        <button className="btn btn-primary" onClick={login} disabled={busy}>
-          {busy ? "Signing in..." : "Login"}
-        </button>
+    <Modal open={open} onClose={onClose} maxWidth="max-w-md">
+      <div className="space-y-5">
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+            Secure Access
+          </p>
+          <h3 className="text-2xl font-bold text-slate-950">Admin Login</h3>
+          <p className="text-sm text-slate-600">
+            Sign in with your Firebase admin credentials to manage dashboard data.
+          </p>
+        </div>
+
+        <div className="grid gap-3">
+          <input
+            className="input input-bordered h-12 w-full"
+            placeholder="Email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <input
+            className="input input-bordered h-12 w-full"
+            placeholder="Password"
+            type="password"
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+          />
+        </div>
+
+        {err ? (
+          <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {err}
+          </p>
+        ) : null}
+
+        <div className="flex justify-end gap-2">
+          <button className="btn btn-ghost" onClick={onClose} disabled={busy} type="button">
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={login} disabled={busy} type="button">
+            {busy ? "Signing in..." : "Login"}
+          </button>
+        </div>
       </div>
     </Modal>
   );

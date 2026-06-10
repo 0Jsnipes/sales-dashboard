@@ -140,10 +140,6 @@ function createHexPolygon(centerLat, centerLng, radius) {
   });
 }
 
-function getHexesNearCenter(center, hexGrid) {
-  return [];
-}
-
 function generateHexGrid() {
   const hexWidth = Math.sqrt(3) * HEX_RADIUS_DEGREES;
   const rowStep = HEX_RADIUS_DEGREES * 1.5;
@@ -335,12 +331,13 @@ export default function CoverageMapPage() {
     const worker = new Worker(new URL("../workers/normalLeadsWorker.js", import.meta.url), {
       type: "module",
     });
+    const resolvers = workerResolversRef.current;
 
     worker.onmessage = (event) => {
       const { id, ok, result, error } = event.data || {};
-      const resolver = workerResolversRef.current.get(id);
+      const resolver = resolvers.get(id);
       if (!resolver) return;
-      workerResolversRef.current.delete(id);
+      resolvers.delete(id);
 
       if (ok) resolver.resolve(result);
       else resolver.reject(new Error(error || "Lead worker failed."));
@@ -349,10 +346,10 @@ export default function CoverageMapPage() {
     workerRef.current = worker;
 
     return () => {
-      for (const resolver of workerResolversRef.current.values()) {
+      for (const resolver of resolvers.values()) {
         resolver.reject(new Error("Lead worker terminated."));
       }
-      workerResolversRef.current.clear();
+      resolvers.clear();
       worker.terminate();
       workerRef.current = null;
     };

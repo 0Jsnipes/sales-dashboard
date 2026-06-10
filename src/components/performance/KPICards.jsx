@@ -76,84 +76,93 @@ function IconCalendar({ className }) {
 }
 
 export default function KPICards({ data, selectedRep }) {
-  const rep = selectedRep ? data.reps.find((r) => r.id === selectedRep) : null;
+  const rep = selectedRep ? data.reps.find((item) => item.id === selectedRep) : null;
 
-  const kpis = rep
+  const cards = rep
     ? [
         {
           label: "Total Knocks",
           value: rep.knocks,
           icon: IconTrending,
-          color: "text-blue-600",
-          bgColor: "bg-blue-50"
+          tint: "from-sky-100 to-sky-50",
+          iconColor: "text-sky-600",
         },
         {
           label: "Total Sales",
           value: rep.sales,
           icon: IconTarget,
-          color: "text-green-600",
-          bgColor: "bg-green-50"
+          tint: "from-emerald-100 to-emerald-50",
+          iconColor: "text-emerald-600",
         },
         {
           label: "Conversion Rate",
-          value: `${((rep.sales / rep.knocks) * 100).toFixed(1)}%`,
+          value: `${((rep.sales / Math.max(rep.knocks, 1)) * 100).toFixed(1)}%`,
           icon: IconTrending,
-          color: "text-amber-600",
-          bgColor: "bg-amber-50"
+          tint: "from-amber-100 to-amber-50",
+          iconColor: "text-amber-600",
         },
         {
           label: "Days Active",
           value: rep.daysActive,
           icon: IconCalendar,
-          color: "text-orange-600",
-          bgColor: "bg-orange-50"
-        }
+          tint: "from-rose-100 to-rose-50",
+          iconColor: "text-rose-600",
+        },
       ]
     : [
         {
           label: "Total Knocks",
           value: data.companyKPIs.totalKnocks,
           icon: IconTrending,
-          color: "text-blue-600",
-          bgColor: "bg-blue-50"
+          tint: "from-sky-100 to-sky-50",
+          iconColor: "text-sky-600",
         },
         {
           label: "Total Sales",
           value: data.companyKPIs.totalSales,
           icon: IconTarget,
-          color: "text-green-600",
-          bgColor: "bg-green-50"
+          tint: "from-emerald-100 to-emerald-50",
+          iconColor: "text-emerald-600",
         },
         {
           label: "Conversion Rate",
           value: `${data.companyKPIs.conversionRate.toFixed(1)}%`,
           icon: IconTrending,
-          color: "text-amber-600",
-          bgColor: "bg-amber-50"
+          tint: "from-amber-100 to-amber-50",
+          iconColor: "text-amber-600",
         },
         {
           label: "Active Reps Yesterday",
           value: data.companyKPIs.activeReps,
           icon: IconUsers,
-          color: "text-orange-600",
-          bgColor: "bg-orange-50"
-        }
+          tint: "from-rose-100 to-rose-50",
+          iconColor: "text-rose-600",
+        },
       ];
 
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-      {kpis.map((kpi, idx) => {
-        const Icon = kpi.icon;
+      {cards.map((card) => {
+        const Icon = card.icon;
         return (
-          <div key={idx} className="rounded-2xl bg-base-100 p-6 shadow">
-            <div className="flex items-center justify-between">
-              <div className={`rounded-xl p-3 ${kpi.bgColor}`}>
-                <Icon className={`h-6 w-6 ${kpi.color}`} />
+          <article
+            key={card.label}
+            className="glass-panel p-5 transition duration-200 hover:-translate-y-1 hover:shadow-[0_26px_54px_rgba(9,20,35,0.12)]"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div
+                className={`rounded-[22px] bg-gradient-to-br ${card.tint} p-3 shadow-sm`}
+              >
+                <Icon className={`h-6 w-6 ${card.iconColor}`} />
               </div>
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                KPI
+              </span>
             </div>
-            <p className="mt-4 text-sm text-slate-500">{kpi.label}</p>
-            <p className="text-2xl font-semibold text-slate-900">{kpi.value}</p>
-          </div>
+
+            <p className="mt-6 text-sm font-medium text-slate-500">{card.label}</p>
+            <p className="mt-2 font-display text-3xl font-bold text-slate-950">{card.value}</p>
+          </article>
         );
       })}
     </div>

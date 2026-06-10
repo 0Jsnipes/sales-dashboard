@@ -1,9 +1,10 @@
 import PerformanceDashboard from "../components/performance/PerformanceDashboard.jsx";
+import { PageShell } from "../components/PageLayout.jsx";
 
 export default function PerformanceDashboardPage() {
   return (
-    <main className="mx-auto w-full max-w-8xl p-6 sm:p-8">
+    <PageShell>
       <PerformanceDashboard />
-    </main>
+    </PageShell>
   );
 }

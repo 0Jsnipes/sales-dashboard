@@ -16,6 +16,7 @@ import { DAYS, prevWeekISO } from "../utils/weeks.js";
 import AddRepsModal from "./AddRepsModal";
 import EditRepsModal from "./EditRepsModal";
 import Modal from "./Modal";
+import { SectionIntro } from "./PageLayout.jsx";
 import { useAuthRole } from "../hooks/useAuth.js";
 import { useDemoMode } from "../hooks/useDemoMode";
 import { getDemoWeekRows } from "../demo/demoData.js";
@@ -569,22 +570,24 @@ export default function WeeklyTable({
   };
 
   const downloadExcel = () => {
+    const metricLabel = metricKey === "knocks" ? "Knocks" : "Sales";
+    const goalLabel = metricKey === "knocks" ? "Knocks Goal" : "Sales Goal";
+    const filenamePrefix = metricKey === "knocks" ? "knocks" : "sales";
+
     const exportRows = rows.map((r) => {
-      const sales = Array.isArray(r.sales) ? r.sales : Array(7).fill(0);
-      const knocks = Array.isArray(r.knocks) ? r.knocks : Array(7).fill(0);
-      const salesTotal = sales.reduce((sum, v) => sum + clampNum(v), 0);
-      const knocksTotal = knocks.reduce((sum, v) => sum + clampNum(v), 0);
+      const metricValues =
+        Array.isArray(r[metricKey]) && r[metricKey].length === 7
+          ? r[metricKey]
+          : Array(7).fill(0);
+      const metricTotal = metricValues.reduce((sum, v) => sum + clampNum(v), 0);
 
       return {
         name: r.name || "",
         manager: r.manager || "",
         team: r.team || "",
-        sales,
-        knocks,
-        salesTotal,
-        knocksTotal,
-        salesGoal: clampNum(r.salesGoal),
-        knocksGoal: clampNum(r.knocksGoal),
+        metricValues,
+        metricTotal,
+        goalValue: clampNum(r[goalKey]),
       };
     });
 
@@ -592,22 +595,14 @@ export default function WeeklyTable({
       "Agent",
       "Manager",
       "Location",
-      ...DAYS.flatMap((day, i) => [
-        `${day} Sales (${fmtHeaderDate(headerDates[i])})`,
-        `${day} Knocks (${fmtHeaderDate(headerDates[i])})`,
-      ]),
-      "Weekly Sales Total",
-      "Weekly Knocks Total",
-      "Sales Goal",
-      "Knocks Goal",
+      ...DAYS.map((day, i) => `${day} ${metricLabel} (${fmtHeaderDate(headerDates[i])})`),
+      `Weekly ${metricLabel} Total`,
+      goalLabel,
     ];
 
     const bodyRows = exportRows
       .map((row) => {
-        const dayCells = DAYS.flatMap((_, i) => [
-          `<td>${clampNum(row.sales[i])}</td>`,
-          `<td>${clampNum(row.knocks[i])}</td>`,
-        ]).join("");
+        const dayCells = DAYS.map((_, i) => `<td>${clampNum(row.metricValues[i])}</td>`).join("");
 
         return `
           <tr>
@@ -615,10 +610,8 @@ export default function WeeklyTable({
             <td>${escapeCell(row.manager)}</td>
             <td>${escapeCell(row.team)}</td>
             ${dayCells}
-            <td>${row.salesTotal}</td>
-            <td>${row.knocksTotal}</td>
-            <td>${row.salesGoal}</td>
-            <td>${row.knocksGoal}</td>
+            <td>${row.metricTotal}</td>
+            <td>${row.goalValue}</td>
           </tr>
         `;
       })
@@ -658,7 +651,7 @@ export default function WeeklyTable({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `sales-and-knocks-${weekISO}.xls`;
+    link.download = `${filenamePrefix}-${weekISO}.xls`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -905,23 +898,17 @@ export default function WeeklyTable({
   };
 
   return (
-    <div
-      className={`rounded-2xl bg-base-100 shadow ${
-        !canEdit ? "pt-8" : "p-6"
-      } ${canEdit ? "" : "px-4"} max-w-10xl mx-auto mb-6`}
-    >
-      <div
-        className={`flex items-center ${
-          showHeaderActions ? "justify-between" : "justify-start"
-        } px-2 pt-4`}
-      >
-        <h2>{title}</h2>
+    <section className="glass-panel p-4 sm:p-5">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <SectionIntro
+          eyebrow="Grid"
+          title={title}
+          description="Daily inputs, totals, goals, and progress for each rep in one place. Mobile gets a stacked card layout; desktop keeps the full spreadsheet."
+        />
+
         {showHeaderActions && (
-          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50/90 p-1.5 shadow-sm">
-            <button
-              className="btn btn-sm h-10 min-h-10 rounded-xl border-0 bg-white px-4 text-slate-700 shadow-sm transition hover:bg-slate-100 hover:text-slate-900"
-              onClick={downloadExcel}
-            >
+          <div className="flex flex-wrap items-center gap-2 rounded-[24px] border border-slate-200/70 bg-white/74 p-2 shadow-sm">
+            <button className="btn btn-sm" onClick={downloadExcel} type="button">
               <DownloadIcon />
               <span>Download Excel</span>
             </button>
@@ -936,10 +923,10 @@ export default function WeeklyTable({
                 />
                 <button
                   type="button"
-                  className="btn btn-sm h-10 min-h-10 rounded-xl border-0 bg-white px-4 text-slate-700 shadow-sm transition hover:bg-slate-100 hover:text-slate-900"
+                  className="btn btn-sm"
                   onClick={() => attFileInputRef.current?.click()}
                 >
-                  <span>ATT Sales upload</span>
+                  <span>ATT Sales Upload</span>
                 </button>
                 <input
                   ref={tmobileFileInputRef}
@@ -950,10 +937,10 @@ export default function WeeklyTable({
                 />
                 <button
                   type="button"
-                  className="btn btn-sm h-10 min-h-10 rounded-xl border-0 bg-white px-4 text-slate-700 shadow-sm transition hover:bg-slate-100 hover:text-slate-900"
+                  className="btn btn-sm"
                   onClick={() => tmobileFileInputRef.current?.click()}
                 >
-                  <span>T-Mobile Sales upload</span>
+                  <span>T-Mobile Upload</span>
                 </button>
               </>
             )}
@@ -968,252 +955,350 @@ export default function WeeklyTable({
                 />
                 <button
                   type="button"
-                  className="btn btn-sm h-10 min-h-10 rounded-xl border-0 bg-white px-4 text-slate-700 shadow-sm transition hover:bg-slate-100 hover:text-slate-900"
+                  className="btn btn-sm"
                   onClick={() => knockFileInputRef.current?.click()}
                 >
-                  <span>Knocks upload</span>
+                  <span>Knocks Upload</span>
                 </button>
               </>
             )}
-            {canEdit && <div className="hidden h-6 w-px bg-slate-200 sm:block" aria-hidden="true" />}
-            {canEdit && (
-              <button
-                className="btn btn-sm h-10 min-h-10 rounded-xl border-0 bg-slate-900 px-4 text-white shadow-sm transition hover:bg-slate-800"
-                onClick={() => setOpenAdd(true)}
-              >
+            {canEdit ? (
+              <button className="btn btn-primary btn-sm" onClick={() => setOpenAdd(true)} type="button">
                 <PlusIcon />
                 <span>Add Reps</span>
               </button>
-            )}
+            ) : null}
           </div>
         )}
       </div>
 
-      {canEdit && (metricKey === "sales" || metricKey === "knocks") && importStatus && (
-        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+      {canEdit && (metricKey === "sales" || metricKey === "knocks") && importStatus ? (
+        <div className="mt-4 rounded-[22px] border border-slate-200/70 bg-slate-50 px-4 py-3 text-sm text-slate-700">
           {importStatus}
         </div>
-      )}
+      ) : null}
 
-      {isSuperAdmin && inactivityDateLabel && (
-        <div className="mt-4 flex justify-end px-2">
-          <button
-            type="button"
-            className="btn btn-sm h-10 min-h-10 rounded-xl border-0 bg-slate-900 px-4 text-white shadow-sm transition hover:bg-slate-800"
-            onClick={() => setInactiveModalOpen(true)}
-          >
+      {isSuperAdmin && inactivityDateLabel ? (
+        <div className="mt-4 flex justify-end">
+          <button className="btn btn-outline btn-sm" onClick={() => setInactiveModalOpen(true)} type="button">
             View inactive ({inactivitySummary.inactiveRows.length})
           </button>
         </div>
-      )}
+      ) : null}
 
-      <div className="mt-3 overflow-x-auto">
-        <table className="table w-full">
-          <thead className="bg-slate-100/90 text-slate-700 [&>tr>th]:border-b [&>tr>th]:border-slate-200">
-            <tr>
-              <th className="min-w-[180px]">Agent</th>
-              <th className="min-w-[140px]">Manager</th>
+      {inactivitySummary.rows.length === 0 ? (
+        <div className="mt-5 rounded-[24px] border border-dashed border-slate-200 bg-white/62 px-4 py-8 text-center text-sm text-slate-500">
+          No reps found for the current filters.
+        </div>
+      ) : null}
 
-              {DAYS.map((d, i) => (
-                <th
-                  key={d}
-                  className={`text-center ${!canEdit ? "px-5" : ""}`}
-                >
-                  <div className="flex flex-col items-center leading-tight">
-                    <span className="font-medium">{d}</span>
-                    <span className="text-xs text-slate-500">
-                      {fmtHeaderDate(headerDates[i])}
-                    </span>
-                  </div>
-                </th>
-              ))}
+      {inactivitySummary.rows.length > 0 ? (
+        <div className="mt-5 grid gap-4 md:hidden">
+          {inactivitySummary.rows.map((r) => {
+            const arr = r[metricKey] || Array(7).fill(0);
+            const total = arr.reduce((sum, value) => sum + clampNum(value), 0);
+            const goal = clampNum(r[goalKey]);
+            const pct = goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : 0;
+            const nameHighlightClass =
+              !isSuperAdmin
+                ? ""
+                : r.inactivityTone === "red"
+                ? "bg-red-100 text-red-700 ring-1 ring-red-200"
+                : r.inactivityTone === "yellow"
+                ? "bg-amber-100 text-amber-800 ring-1 ring-amber-200"
+                : "";
 
-              <th className={`text-center ${!canEdit ? "px-5" : ""}`}>
-                TOTAL
-              </th>
-              <th
-                className={`min-w-[100px] text-center ${
-                  !canEdit ? "px-5" : ""
-                }`}
-              >
-                GOAL
-              </th>
-              <th className="min-w-[160px]">Progress</th>
-              <th className="min-w-[140px]">Location</th>
-              {canEdit && <th className="min-w-[140px]" />} {/* actions */}
-            </tr>
-          </thead>
-
-          <tbody
-            className="
-              [&>tr:nth-child(odd)]:bg-white
-              [&>tr:nth-child(even)]:bg-slate-50
-              [&>tr>td]:border-b [&>tr>td]:border-slate-200
-            "
-          >
-            {inactivitySummary.rows.map((r) => {
-              const arr = r[metricKey] || Array(7).fill(0);
-              const total = arr.reduce((a, b) => a + clampNum(b), 0);
-              const goal = clampNum(r[goalKey]);
-              const pct =
-                goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : 0;
-              const isHighlighted = highlightedRepId === r.id;
-              const nameHighlightClass =
-                !isSuperAdmin
-                  ? ""
-                  : r.inactivityTone === "red"
-                  ? "bg-red-100 text-red-700 ring-1 ring-red-200"
-                  : r.inactivityTone === "yellow"
-                  ? "bg-amber-100 text-amber-800 ring-1 ring-amber-200"
-                  : "";
-
-              return (
-                <tr
-                  key={`${r.id}-${r.name}`}
-                  className={isHighlighted ? "!bg-slate-200" : undefined}
-                >
-                  <td className="font-medium">
-                    <span
-                      className={`inline-flex rounded-lg px-2 py-1 ${
-                        nameHighlightClass || ""
-                      }`}
-                    >
+            return (
+              <article key={`mobile-${r.id}`} className="mobile-rep-card">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className={`inline-flex rounded-xl px-3 py-1 text-sm font-semibold ${nameHighlightClass}`}>
                       {r.name}
                     </span>
-                  </td>
+                    <div className="mt-2 text-sm text-slate-600">
+                      {r.manager || "No manager"} - {r.team || "No location"}
+                    </div>
+                  </div>
+                  <div className="rounded-[18px] border border-slate-200/70 bg-slate-50 px-3 py-2 text-right">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Total
+                    </div>
+                    <div className="font-display text-2xl font-bold text-slate-950">{total}</div>
+                  </div>
+                </div>
 
-                  <td className="text-sm">{r.manager || ""}</td>
-
-                  {DAYS.map((d, i) => (
-                    <td
-                      key={d}
-                      className={`text-center ${!canEdit ? "px-5" : ""}`}
-                    >
+                <div className="mt-4 mobile-day-grid">
+                  {DAYS.map((day, index) => (
+                    <div key={`mobile-${r.id}-${day}`} className="mobile-day-pill">
+                      <div className="mobile-day-pill__label">
+                        {day} {fmtHeaderDate(headerDates[index])}
+                      </div>
                       {canEdit ? (
                         <input
-                          key={`${r.id}-${weekISO}-${i}-${arr[i] ?? 0}`}
+                          key={`${r.id}-${weekISO}-mobile-${index}-${arr[index] ?? 0}`}
                           type="number"
-                        min="0"
-                        defaultValue={arr[i] ?? ""}
-                        className="input input-bordered input-xs w-16 text-center"
-                        data-type="day"
-                        data-rep={r.id}
-                        data-day={i}
-                        onFocus={() => setHighlightedRepId(r.id)}
-                        onClick={() => setHighlightedRepId(r.id)}
-                        onBlur={(e) => saveCell(r, i, e.target.value)}
-                        onKeyDown={handleKeyNav}
+                          min="0"
+                          defaultValue={arr[index] ?? ""}
+                          className="input input-bordered mt-2 h-11 w-full text-center"
+                          data-type="day"
+                          data-rep={r.id}
+                          data-day={index}
+                          onFocus={() => setHighlightedRepId(r.id)}
+                          onClick={() => setHighlightedRepId(r.id)}
+                          onBlur={(event) => saveCell(r, index, event.target.value)}
                         />
                       ) : (
-                        <span>{arr[i] ?? ""}</span>
+                        <div className="mobile-day-pill__value">{arr[index] ?? 0}</div>
                       )}
-                    </td>
+                    </div>
                   ))}
+                </div>
 
-                  <td
-                    className={`text-center font-semibold ${
-                      !canEdit ? "px-5" : ""
-                    }`}
-                  >
-                    {total}
-                  </td>
-
-                  <td className={`text-center ${!canEdit ? "px-5" : ""}`}>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/90 px-4 py-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Goal
+                    </div>
                     {canEdit ? (
                       <input
-                        key={`${r.id}-${weekISO}-goal-${goal ?? 0}`}
+                        key={`${r.id}-${weekISO}-mobile-goal-${goal ?? 0}`}
                         type="number"
                         min="0"
                         defaultValue={goal ?? ""}
-                        className="input input-bordered input-xs w-20 text-center"
+                        className="input input-bordered mt-2 h-11 w-full text-center"
                         data-type="goal"
                         data-rep={r.id}
-                        onBlur={(e) => saveGoal(r, e.target.value)}
-                        onKeyDown={handleKeyNav}
+                        onBlur={(event) => saveGoal(r, event.target.value)}
                       />
                     ) : (
-                      <span>{goal === 0 ? 0 : goal || ""}</span>
-                    )}
-                  </td>
-
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <progress
-                        className="progress progress-secondary w-28"
-                        value={pct}
-                        max="100"
-                      />
-                      <span className="text-xs opacity-70 w-10">{pct}%</span>
-                    </div>
-                  </td>
-
-                  <td>{r.team || ""}</td>
-
-                  {canEdit && (
-                    <td className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          className="btn btn-ghost btn-xs"
-                          onClick={() => setRepToEdit(r)}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          className="btn btn-ghost btn-xs text-error"
-                          onClick={() => removeRep(r.id)}
-                        >
-                          Delete
-                        </button>
+                      <div className="mt-2 font-display text-2xl font-bold text-slate-950">
+                        {goal === 0 ? 0 : goal || ""}
                       </div>
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
+                    )}
+                  </div>
 
-          <tfoot className="bg-slate-100/90 [&>tr>th]:border-t [&>tr>th]:border-slate-200">
-            <tr>
-              <th className="text-right">Totals</th>
-              <th />
-              {colTotals.dayTotals.map((v, i) => (
-                <th
-                  key={i}
-                  className={`text-center ${!canEdit ? "px-5" : ""}`}
-                >
-                  {v}
-                </th>
-              ))}
-              <th className={`text-center ${!canEdit ? "px-5" : ""}`}>
-                {colTotals.weekTotal}
-              </th>
-              <th className={`text-center ${!canEdit ? "px-5" : ""}`}>
-                {colTotals.goalTotal}
-              </th>
-              <th>
-                <div className="flex items-center gap-2">
-                  <progress
-                    className="progress progress-secondary w-28"
-                    value={totalsPct}
-                    max="100"
-                  />
-                  <span className="w-10 text-xs opacity-70">{totalsPct}%</span>
+                  <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/90 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Progress
+                      </span>
+                      <span className="text-sm font-semibold text-slate-700">{pct}%</span>
+                    </div>
+                    <div className="mt-3">
+                      <progress className="progress w-full" value={pct} max="100" />
+                    </div>
+                  </div>
                 </div>
-              </th>
-              <th>-</th>
-              {canEdit && <th />}
-            </tr>
-          </tfoot>
-        </table>
-      </div>
 
-      {canEdit && (
+                {canEdit ? (
+                  <div className="mt-4 flex justify-end gap-2">
+                    <button className="btn btn-outline btn-sm" onClick={() => setRepToEdit(r)} type="button">
+                      Edit
+                    </button>
+                    <button className="btn btn-error btn-sm" onClick={() => removeRep(r.id)} type="button">
+                      Delete
+                    </button>
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
+
+          <article className="mobile-rep-card">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Weekly Totals
+                </div>
+                <div className="mt-2 font-display text-2xl font-bold text-slate-950">
+                  {colTotals.weekTotal}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Goal
+                </div>
+                <div className="mt-2 font-display text-2xl font-bold text-slate-950">
+                  {colTotals.goalTotal}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between text-sm font-semibold text-slate-700">
+                <span>Team progress</span>
+                <span>{totalsPct}%</span>
+              </div>
+              <progress className="progress w-full" value={totalsPct} max="100" />
+            </div>
+          </article>
+        </div>
+      ) : null}
+
+      {inactivitySummary.rows.length > 0 ? (
+        <div className="data-table-shell mt-5 hidden md:block">
+          <div className="data-table-scroll">
+            <table className="table w-full min-w-[1120px]">
+              <thead className="bg-slate-100/90 text-slate-700 [&>tr>th]:border-b [&>tr>th]:border-slate-200">
+                <tr>
+                  <th className="min-w-[180px]">Agent</th>
+                  <th className="min-w-[140px]">Manager</th>
+
+                  {DAYS.map((d, i) => (
+                    <th key={d} className={`text-center ${!canEdit ? "px-5" : ""}`}>
+                      <div className="flex flex-col items-center leading-tight">
+                        <span className="font-medium">{d}</span>
+                        <span className="text-xs text-slate-500">{fmtHeaderDate(headerDates[i])}</span>
+                      </div>
+                    </th>
+                  ))}
+
+                  <th className={`text-center ${!canEdit ? "px-5" : ""}`}>TOTAL</th>
+                  <th className={`min-w-[100px] text-center ${!canEdit ? "px-5" : ""}`}>GOAL</th>
+                  <th className="min-w-[160px]">Progress</th>
+                  <th className="min-w-[140px]">Location</th>
+                  {canEdit ? <th className="min-w-[140px]" /> : null}
+                </tr>
+              </thead>
+
+              <tbody
+                className="
+                  [&>tr:nth-child(odd)]:bg-white
+                  [&>tr:nth-child(even)]:bg-slate-50
+                  [&>tr>td]:border-b [&>tr>td]:border-slate-200
+                "
+              >
+                {inactivitySummary.rows.map((r) => {
+                  const arr = r[metricKey] || Array(7).fill(0);
+                  const total = arr.reduce((a, b) => a + clampNum(b), 0);
+                  const goal = clampNum(r[goalKey]);
+                  const pct = goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : 0;
+                  const isHighlighted = highlightedRepId === r.id;
+                  const nameHighlightClass =
+                    !isSuperAdmin
+                      ? ""
+                      : r.inactivityTone === "red"
+                      ? "bg-red-100 text-red-700 ring-1 ring-red-200"
+                      : r.inactivityTone === "yellow"
+                      ? "bg-amber-100 text-amber-800 ring-1 ring-amber-200"
+                      : "";
+
+                  return (
+                    <tr key={`${r.id}-${r.name}`} className={isHighlighted ? "!bg-slate-100" : undefined}>
+                      <td className="font-medium">
+                        <span className={`inline-flex rounded-lg px-2 py-1 ${nameHighlightClass || ""}`}>
+                          {r.name}
+                        </span>
+                      </td>
+
+                      <td className="text-sm">{r.manager || ""}</td>
+
+                      {DAYS.map((d, i) => (
+                        <td key={d} className={`text-center ${!canEdit ? "px-5" : ""}`}>
+                          {canEdit ? (
+                            <input
+                              key={`${r.id}-${weekISO}-${i}-${arr[i] ?? 0}`}
+                              type="number"
+                              min="0"
+                              defaultValue={arr[i] ?? ""}
+                              className="input input-bordered input-xs w-16 text-center"
+                              data-type="day"
+                              data-rep={r.id}
+                              data-day={i}
+                              onFocus={() => setHighlightedRepId(r.id)}
+                              onClick={() => setHighlightedRepId(r.id)}
+                              onBlur={(e) => saveCell(r, i, e.target.value)}
+                              onKeyDown={handleKeyNav}
+                            />
+                          ) : (
+                            <span>{arr[i] ?? ""}</span>
+                          )}
+                        </td>
+                      ))}
+
+                      <td className={`text-center font-semibold ${!canEdit ? "px-5" : ""}`}>{total}</td>
+
+                      <td className={`text-center ${!canEdit ? "px-5" : ""}`}>
+                        {canEdit ? (
+                          <input
+                            key={`${r.id}-${weekISO}-goal-${goal ?? 0}`}
+                            type="number"
+                            min="0"
+                            defaultValue={goal ?? ""}
+                            className="input input-bordered input-xs w-20 text-center"
+                            data-type="goal"
+                            data-rep={r.id}
+                            onBlur={(e) => saveGoal(r, e.target.value)}
+                            onKeyDown={handleKeyNav}
+                          />
+                        ) : (
+                          <span>{goal === 0 ? 0 : goal || ""}</span>
+                        )}
+                      </td>
+
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <progress className="progress w-28" value={pct} max="100" />
+                          <span className="w-10 text-xs opacity-70">{pct}%</span>
+                        </div>
+                      </td>
+
+                      <td>{r.team || ""}</td>
+
+                      {canEdit ? (
+                        <td className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <button className="btn btn-ghost btn-xs" onClick={() => setRepToEdit(r)} type="button">
+                              Edit
+                            </button>
+                            <button
+                              className="btn btn-ghost btn-xs text-error"
+                              onClick={() => removeRep(r.id)}
+                              type="button"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      ) : null}
+                    </tr>
+                  );
+                })}
+              </tbody>
+
+              <tfoot className="bg-slate-100/90 [&>tr>th]:border-t [&>tr>th]:border-slate-200">
+                <tr>
+                  <th className="text-right">Totals</th>
+                  <th />
+                  {colTotals.dayTotals.map((value, index) => (
+                    <th key={index} className={`text-center ${!canEdit ? "px-5" : ""}`}>
+                      {value}
+                    </th>
+                  ))}
+                  <th className={`text-center ${!canEdit ? "px-5" : ""}`}>{colTotals.weekTotal}</th>
+                  <th className={`text-center ${!canEdit ? "px-5" : ""}`}>{colTotals.goalTotal}</th>
+                  <th>
+                    <div className="flex items-center gap-2">
+                      <progress className="progress w-28" value={totalsPct} max="100" />
+                      <span className="w-10 text-xs opacity-70">{totalsPct}%</span>
+                    </div>
+                  </th>
+                  <th>-</th>
+                  {canEdit ? <th /> : null}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      ) : null}
+
+      {canEdit ? (
         <div className="mt-4 flex justify-end">
-          <button className="btn btn-error btn-sm" onClick={removeAll}>
+          <button className="btn btn-error btn-sm" onClick={removeAll} type="button">
             Delete All
           </button>
         </div>
-      )}
+      ) : null}
 
       <AddRepsModal
         weekISO={weekISO}
@@ -1293,7 +1378,7 @@ export default function WeeklyTable({
           )}
         </div>
       </Modal>
-    </div>
+    </section>
   );
 }
 

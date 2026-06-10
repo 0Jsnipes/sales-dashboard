@@ -8,7 +8,7 @@ export default function RepSelector({ reps, selectedRep, onSelectRep }) {
     <select
       value={selectedRep || ""}
       onChange={(e) => onSelectRep(e.target.value || null)}
-      className="min-w-[200px] rounded-xl border border-base-300 bg-base-100 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+      className="select select-bordered h-12 min-w-[220px] w-full"
     >
       <option value="">All Reps</option>
       {uniqueReps.map((rep) => (

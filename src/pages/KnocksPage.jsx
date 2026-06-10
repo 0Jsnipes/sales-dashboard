@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useAuthRole } from "../hooks/useAuth.js";
-import { startOfWeek, toISO } from "../utils/weeks.js";
+import { PageHero, PageShell } from "../components/PageLayout.jsx";
+import TeamFilter from "../components/TeamFilter.jsx";
 import WeekSwitcher from "../components/WeekSwitcher.jsx";
 import WeeklyChart from "../components/WeeklyChart.jsx";
 import WeeklyTable from "../components/WeeklyTable.jsx";
-import TeamFilter from "../components/TeamFilter.jsx";
+import { useAuthRole } from "../hooks/useAuth.js";
+import { startOfWeek, toISO } from "../utils/weeks.js";
 
 export default function KnocksPage() {
   const { isAdmin, isDemo, permissions, loading } = useAuthRole();
@@ -14,29 +15,45 @@ export default function KnocksPage() {
   const [params, setParams] = useSearchParams();
   const location = params.get("location") || "All";
   const manager = params.get("manager") || "All";
-  if (loading) return <div className="p-8">Loading…</div>;
 
-  const setLocation = (val) => {
+  if (loading) {
+    return (
+      <PageShell>
+        <div className="surface-panel px-5 py-8 text-sm text-slate-600">Loading...</div>
+      </PageShell>
+    );
+  }
+
+  const setLocation = (value) => {
     const next = new URLSearchParams(params);
-    if (val && val !== "All") next.set("location", val);
+    if (value && value !== "All") next.set("location", value);
     else next.delete("location");
     setParams(next, { replace: true });
   };
 
-  const setManager = (val) => {
+  const setManager = (value) => {
     const next = new URLSearchParams(params);
-    if (val && val !== "All") next.set("manager", val);
+    if (value && value !== "All") next.set("manager", value);
     else next.delete("manager");
     setParams(next, { replace: true });
   };
 
   return (
-    <main className="mx-auto max-w-9xl p-6 sm:p-8 grid gap-8">
-      <div className="flex justify-center">
-        <WeekSwitcher weekISO={weekISO} setWeekISO={setWeekISO} />
-      </div>
+    <PageShell>
+      <PageHero
+        eyebrow="Activity View"
+        title="Door activity that still feels easy on the eyes."
+        description="Review weekly knocks, compare team effort across the week, and edit activity totals without forcing a desktop-only workflow."
+        stats={[
+          { label: "Week", value: weekISO },
+          { label: "Location", value: location },
+          { label: "Manager", value: manager },
+          { label: "Access", value: canEditKnocks ? "Editor" : isDemo ? "Demo" : "Viewer" },
+        ]}
+      />
 
-      <div className="flex justify-center">
+      <div className="grid gap-4">
+        <WeekSwitcher weekISO={weekISO} setWeekISO={setWeekISO} />
         <TeamFilter
           weekISO={weekISO}
           location={location}
@@ -65,6 +82,6 @@ export default function KnocksPage() {
         teamFilter={location}
         managerFilter={manager}
       />
-    </main>
+    </PageShell>
   );
 }

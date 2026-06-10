@@ -1,23 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  BarChart,
   Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
 } from "recharts";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useDemoMode } from "../hooks/useDemoMode";
 import { getDemoWeekRows } from "../demo/demoData.js";
+import { SectionIntro } from "./PageLayout.jsx";
 
-// AB brand colors
-const AB_PRIMARY = "#101010";
-const AB_LIME = "#D4E157";
+const CHART_PRIMARY = "#10203a";
+const CHART_ACCENT = "#d8f45b";
 
-const clampNum = (v) => (Number.isFinite(+v) && +v >= 0 ? Math.floor(+v) : 0);
+const clampNum = (value) => (Number.isFinite(+value) && +value >= 0 ? Math.floor(+value) : 0);
+
 const keyForRep = (rep) => {
   const sid = (rep.salesId || rep.sid || "").trim().toLowerCase();
   if (sid) return `sid:${sid}`;
@@ -26,15 +27,6 @@ const keyForRep = (rep) => {
   return null;
 };
 
-/**
- * Props:
- *  - base:       "weeks"
- *  - weekISO:    "YYYY-MM-DD"
- *  - metricKey:  "sales" | "knocks"
- *  - title:      string
- *  - teamFilter: "All" | team
- *  - managerFilter: "All" | manager
- */
 export default function WeeklyChart({
   base = "weeks",
   weekISO,
@@ -44,174 +36,185 @@ export default function WeeklyChart({
   managerFilter = "All",
 }) {
   const isDemo = useDemoMode();
-  const [rows, setRows] = useState(null); // null = loading
+  const [rows, setRows] = useState(null);
 
   useEffect(() => {
     if (isDemo) {
-      const normalize = (v) => (v ?? "").trim();
+      const normalize = (value) => (value ?? "").trim();
       const teamFilterNorm = normalize(teamFilter);
       const managerFilterNorm = normalize(managerFilter);
       const demoRows = getDemoWeekRows(weekISO)
-        .filter((v) => {
+        .filter((row) => {
           if (
             teamFilterNorm &&
             teamFilterNorm !== "All" &&
-            normalize(v.team) !== teamFilterNorm
-          )
+            normalize(row.team) !== teamFilterNorm
+          ) {
             return false;
+          }
           if (
             managerFilterNorm &&
             managerFilterNorm !== "All" &&
-            normalize(v.manager) !== managerFilterNorm
-          )
+            normalize(row.manager) !== managerFilterNorm
+          ) {
             return false;
+          }
           return true;
         })
-        .map((v) => {
-          const arr =
-            Array.isArray(v[metricKey]) && v[metricKey].length === 7
-              ? v[metricKey]
+        .map((row) => {
+          const values =
+            Array.isArray(row[metricKey]) && row[metricKey].length === 7
+              ? row[metricKey]
               : Array(7).fill(0);
-          const total = arr.reduce((a, b) => a + clampNum(b), 0);
-          return { ...v, total };
+          const total = values.reduce((sum, value) => sum + clampNum(value), 0);
+          return { ...row, total };
         });
 
-      const dedup = new Map();
+      const deduped = new Map();
       demoRows.forEach((row) => {
-        const k = keyForRep(row);
-        if (!k) return;
-        const existing = dedup.get(k);
-        if (!existing || row.total > existing.total) {
-          dedup.set(k, row);
-        }
+        const key = keyForRep(row);
+        if (!key) return;
+        const existing = deduped.get(key);
+        if (!existing || row.total > existing.total) deduped.set(key, row);
       });
 
-      const data = Array.from(dedup.values())
-        .map((v) => ({
-          id: v.id,
-          name: v.name || "Unnamed",
-          total: v.total,
+      const data = Array.from(deduped.values())
+        .map((row) => ({
+          id: row.id,
+          name: row.name || "Unnamed",
+          total: row.total,
         }))
-        .sort((a, b) =>
-          a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
-        );
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 
       setRows(data);
       return undefined;
     }
 
-    const q = query(collection(db, base, weekISO, "reps"));
-    return onSnapshot(q, (s) => {
-      const normalize = (v) => (v ?? "").trim();
+    const chartQuery = query(collection(db, base, weekISO, "reps"));
+    return onSnapshot(chartQuery, (snapshot) => {
+      const normalize = (value) => (value ?? "").trim();
       const teamFilterNorm = normalize(teamFilter);
       const managerFilterNorm = normalize(managerFilter);
-      const rows = s.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .filter((v) => {
-          if (v.deleted) return false;
+
+      const rawRows = snapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .filter((row) => {
+          if (row.deleted) return false;
           if (
             teamFilterNorm &&
             teamFilterNorm !== "All" &&
-            normalize(v.team) !== teamFilterNorm
-          )
+            normalize(row.team) !== teamFilterNorm
+          ) {
             return false;
+          }
           if (
             managerFilterNorm &&
             managerFilterNorm !== "All" &&
-            normalize(v.manager) !== managerFilterNorm
-          )
+            normalize(row.manager) !== managerFilterNorm
+          ) {
             return false;
+          }
           return true;
         })
-        .map((v) => {
-          const arr =
-            Array.isArray(v[metricKey]) && v[metricKey].length === 7
-              ? v[metricKey]
+        .map((row) => {
+          const values =
+            Array.isArray(row[metricKey]) && row[metricKey].length === 7
+              ? row[metricKey]
               : Array(7).fill(0);
-          const total = arr.reduce((a, b) => a + clampNum(b), 0);
-          return { ...v, total };
+          const total = values.reduce((sum, value) => sum + clampNum(value), 0);
+          return { ...row, total };
         });
 
-      // Deduplicate by salesId/name, keeping the entry with the higher total
-      const dedup = new Map();
-      rows.forEach((row) => {
-        const k = keyForRep(row);
-        if (!k) return;
-        const existing = dedup.get(k);
-        if (!existing || row.total > existing.total) {
-          dedup.set(k, row);
-        }
+      const deduped = new Map();
+      rawRows.forEach((row) => {
+        const key = keyForRep(row);
+        if (!key) return;
+        const existing = deduped.get(key);
+        if (!existing || row.total > existing.total) deduped.set(key, row);
       });
 
-      const data = Array.from(dedup.values())
-        .map((v) => ({
-          id: v.id,
-          name: v.name || "Unnamed",
-          total: v.total,
+      const data = Array.from(deduped.values())
+        .map((row) => ({
+          id: row.id,
+          name: row.name || "Unnamed",
+          total: row.total,
         }))
-        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })); // alphabetical
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 
       setRows(data);
     });
-  }, [base, weekISO, metricKey, teamFilter, managerFilter, isDemo]);
+  }, [base, isDemo, managerFilter, metricKey, teamFilter, weekISO]);
 
   const maxY = useMemo(() => {
     if (!rows || rows.length === 0) return 5;
-    const m = Math.max(...rows.map((r) => r.total));
-    return Math.max(5, Math.ceil((m + 1) / 5) * 5);
+    const max = Math.max(...rows.map((row) => row.total));
+    return Math.max(5, Math.ceil((max + 1) / 5) * 5);
+  }, [rows]);
+
+  const chartWidth = useMemo(() => {
+    if (!rows || rows.length === 0) return 720;
+    return Math.max(720, rows.length * 76);
   }, [rows]);
 
   return (
-    <div className="rounded-2xl bg-base-100 p-4 sm:p-6 shadow">
-      <h2>{title}</h2>
+    <section className="glass-panel p-5">
+      <SectionIntro
+        eyebrow="Chart"
+        title={title}
+        description="A weekly roll-up by rep. On smaller screens, the chart scrolls sideways instead of compressing labels into unreadable text."
+      />
 
-      {rows === null && (
-        <div className="mt-3 h-64 w-full animate-pulse rounded-xl bg-slate-200/60" />
-      )}
+      {rows === null ? (
+        <div className="mt-5 h-72 animate-pulse rounded-[24px] bg-slate-200/60" />
+      ) : null}
 
-      {rows && rows.length === 0 && (
-        <div className="mt-3 flex h-64 items-center justify-center text-sm text-slate-500">
+      {rows && rows.length === 0 ? (
+        <div className="mt-5 flex h-72 items-center justify-center rounded-[24px] border border-dashed border-slate-200 bg-white/55 text-sm text-slate-500">
           No data yet for this week.
         </div>
-      )}
+      ) : null}
 
-      {rows && rows.length > 0 && (
-        <div className="mt-3 h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={rows}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis
-                dataKey="name"
-                tick={{ fill: AB_PRIMARY, fontSize: 12 }}
-                tickMargin={8}
-                axisLine={{ stroke: "#e5e7eb" }}
-                tickLine={{ stroke: "#e5e7eb" }}
-              />
-              <YAxis
-                allowDecimals={false}
-                domain={[0, maxY]}
-                tick={{ fill: AB_PRIMARY, fontSize: 12 }}
-                axisLine={{ stroke: "#e5e7eb" }}
-                tickLine={{ stroke: "#e5e7eb" }}
-              />
-              <Tooltip
-                cursor={{ fill: "rgba(0,0,0,0.04)" }}
-                contentStyle={{
-                  background: "rgba(255,255,255,0.9)",
-                  backdropFilter: "blur(6px)",
-                  border: "1px solid rgba(0,0,0,0.08)",
-                  borderRadius: 12,
-                  boxShadow: "0 6px 20px rgba(0,0,0,0.08)",
-                  fontSize: 12,
-                }}
-                labelStyle={{ color: AB_PRIMARY, fontWeight: 600 }}
-                itemStyle={{ color: AB_PRIMARY }}
-              />
-              <Bar dataKey="total" fill={AB_LIME} radius={[8, 8, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+      {rows && rows.length > 0 ? (
+        <div className="mt-5 overflow-x-auto">
+          <div style={{ width: chartWidth, height: 320 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={rows} margin={{ top: 8, right: 12, left: -18, bottom: 28 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.26)" />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fill: CHART_PRIMARY, fontSize: 12 }}
+                  tickMargin={12}
+                  axisLine={false}
+                  tickLine={false}
+                  interval={0}
+                  angle={-24}
+                  textAnchor="end"
+                />
+                <YAxis
+                  allowDecimals={false}
+                  domain={[0, maxY]}
+                  tick={{ fill: CHART_PRIMARY, fontSize: 12 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  cursor={{ fill: "rgba(216, 244, 91, 0.08)" }}
+                  contentStyle={{
+                    background: "rgba(255,255,255,0.94)",
+                    border: "1px solid rgba(121, 143, 171, 0.18)",
+                    borderRadius: 18,
+                    boxShadow: "0 18px 34px rgba(9,20,35,0.12)",
+                    fontSize: 12,
+                  }}
+                  labelStyle={{ color: CHART_PRIMARY, fontWeight: 700 }}
+                  itemStyle={{ color: CHART_PRIMARY }}
+                />
+                <Bar dataKey="total" fill={CHART_ACCENT} radius={[12, 12, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-      )}
-    </div>
+      ) : null}
+    </section>
   );
 }

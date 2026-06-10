@@ -3,6 +3,7 @@ import { collection, doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuthRole } from "../hooks/useAuth";
 import GoGoFormatterLauncher from "../components/GoGoFormatterLauncher.jsx";
+import { PageHero, PageShell } from "../components/PageLayout.jsx";
 import { gogoFormatterAllowlist, isEmailAllowed } from "../lib/access.js";
 
 const sections = [
@@ -362,29 +363,39 @@ export default function OnboardingPage() {
   };
 
   if (authLoading) {
-    return <div className="p-6 text-slate-600">Loading...</div>;
+    return (
+      <PageShell>
+        <div className="surface-panel px-5 py-8 text-sm text-slate-600">Loading...</div>
+      </PageShell>
+    );
   }
 
   if (!isAdmin) {
-    return <div className="p-6 text-slate-600">Admin access required.</div>;
+    return (
+      <PageShell>
+        <div className="surface-panel px-5 py-8 text-sm text-slate-600">
+          Admin access required.
+        </div>
+      </PageShell>
+    );
   }
 
   return (
-    <div className="p-4 lg:p-6">
-      <div className="mx-auto max-w-7xl space-y-6 rounded-3xl bg-white/60 p-6 shadow-lg backdrop-blur">
-        <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
-              Onboarding Hub
-            </h1>
-            <p className="text-sm text-slate-600">
-              Quick links to program resources. Click a button to open the corresponding page
-              (links to be added).
-            </p>
-          </div>
+    <PageShell>
+      <PageHero
+        eyebrow="Onboarding"
+        title="Everything new reps need in one cleaner hub."
+        description="Program links, onboarding progress, notes, and task completion all live here now with the same visual system as the rest of the dashboard."
+        actions={canUseGoGoFormatter ? <GoGoFormatterLauncher /> : null}
+        stats={[
+          { label: "Open Reps", value: totalRows || 0 },
+          { label: "Programs", value: sections.length },
+          { label: "Export", value: canEditOnboarding ? "Enabled" : "Locked" },
+          { label: "Status", value: loading ? "Syncing" : "Ready" },
+        ]}
+      />
 
-          {canUseGoGoFormatter ? <GoGoFormatterLauncher /> : null}
-        </header>
+      <div className="glass-panel space-y-6 p-5">
 
         <div className="grid gap-6 md:grid-cols-2">
           {sections.map((section) => (
@@ -403,7 +414,7 @@ export default function OnboardingPage() {
                   <a
                     key={btn.label}
                     href={btn.link}
-                    className={`btn mx-auto w-64 justify-center text-center rounded-full border-0 text-sm font-semibold shadow ${btn.colorClass}`}
+                    className={`btn mx-auto h-12 w-64 items-center justify-center text-center rounded-full border-0 text-sm font-semibold shadow ${btn.colorClass}`}
                     role="button"
                   >
                     {btn.label}
@@ -604,6 +615,6 @@ export default function OnboardingPage() {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }

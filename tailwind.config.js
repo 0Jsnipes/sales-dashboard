@@ -5,9 +5,17 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["Inter", "ui-sans-serif", "system-ui", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "Noto Sans"],
-        // optional: keep for reference, but not used via utility
-        display: ["Manrope", "Inter", "ui-sans-serif", "system-ui"],
+        sans: [
+          "Plus Jakarta Sans",
+          "ui-sans-serif",
+          "system-ui",
+          "Segoe UI",
+          "Roboto",
+          "Helvetica Neue",
+          "Arial",
+          "Noto Sans",
+        ],
+        display: ["Sora", "Plus Jakarta Sans", "ui-sans-serif", "system-ui"],
       },
     },
   },

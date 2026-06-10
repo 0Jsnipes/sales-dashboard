@@ -67,42 +67,53 @@ export default function TeamFilter({
   };
 
   return (
-    <div className="flex items-center gap-4 flex-wrap">
-      <div className="flex items-center gap-2">
-        <span className="text-sm opacity-70">Location:</span>
-        <select
-          className="select select-bordered select-sm"
-          value={location}
-          onChange={handleChange}
-          disabled={!canChange}
-          title={canChange ? "Change location" : "Sign in to change location"}
-        >
-          {locations.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-      </div>
+    <div className="toolbar-card toolbar-card--compact w-full">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-end">
+        <label className="grid gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+            Location
+          </span>
+          <select
+            className="select select-bordered h-12 w-full"
+            value={location}
+            onChange={handleChange}
+            disabled={!canChange}
+            title={canChange ? "Change location" : "Sign in to change location"}
+          >
+            {locations.map((team) => (
+              <option key={team} value={team}>
+                {team}
+              </option>
+            ))}
+          </select>
+        </label>
 
-      <div className="flex items-center gap-2">
-        <span className="text-sm opacity-70">Manager:</span>
-        <select
-          className="select select-bordered select-sm"
-          value={manager}
-          onChange={handleManagerChange}
-          disabled={!canChange}
-          title={canChange ? "Change manager" : "Sign in to change manager"}
-        >
-          {managers.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-      </div>
+        <label className="grid gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+            Manager
+          </span>
+          <select
+            className="select select-bordered h-12 w-full"
+            value={manager}
+            onChange={handleManagerChange}
+            disabled={!canChange}
+            title={canChange ? "Change manager" : "Sign in to change manager"}
+          >
+            {managers.map((managerName) => (
+              <option key={managerName} value={managerName}>
+                {managerName}
+              </option>
+            ))}
+          </select>
+        </label>
 
-      {!canChange && <span className="text-xs opacity-60">(view-only)</span>}
+        <div className="flex items-center xl:justify-end">
+          <span className="metric-chip">
+            <span className="metric-chip__dot" aria-hidden="true" />
+            {canChange ? "Live filters enabled" : "View-only filters"}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { Suspense, lazy, useState } from "react";
 import { signOut } from "firebase/auth";
-import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { auth } from "./lib/firebase";
 import { useAuthRole } from "./hooks/useAuth.js";
 import { isEmailAllowed, performanceAllowlist } from "./lib/access";
@@ -33,8 +33,9 @@ export default function App() {
   const showNav = isAdmin || isDemo || canViewRoster;
 
   return (
-    <div className="min-h-screen bg-white/30 backdrop-blur-xl backdrop-saturate-150 relative">
-      <div className="fixed inset-0 pointer-events-none bg-[url('/noise.png')] opacity-10 mix-blend-soft-light" />
+    <div className="app-chrome">
+      <div className="app-chrome__mesh" />
+      <div className="app-chrome__grid" />
       <BrowserRouter>
         <InstallAppBanner />
         {showNav && (
@@ -51,11 +52,13 @@ export default function App() {
           />
         )}
         {!showNav && !appLoading && (
-          <div className="sticky top-0 z-40 bg-white/70 backdrop-blur border-b border-black/10">
-            <div className="mx-auto flex max-w-6xl items-center justify-between px-3 py-2 sm:px-4">
+          <div className="sticky top-0 z-40 px-4 pt-4 sm:px-6">
+            <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 rounded-[28px] border border-white/60 bg-white/70 px-4 py-3 shadow-[0_18px_40px_rgba(9,20,35,0.08)] backdrop-blur-xl sm:px-5">
               <div className="flex items-center gap-2">
-                <img src="/ab-logo.png" className="h-6 sm:h-7" alt="AB" />
-                <span className="text-sm sm:text-base font-semibold tracking-tight">
+                <div className="rounded-2xl bg-slate-950/95 p-2 shadow-lg shadow-slate-950/10">
+                  <img src="/ab-logo.png" className="h-6 w-6 object-contain sm:h-7 sm:w-7" alt="AB" />
+                </div>
+                <span className="text-sm font-semibold tracking-tight text-slate-900 sm:text-base">
                   Sales Dashboard
                 </span>
               </div>
@@ -73,7 +76,7 @@ export default function App() {
             path="/performance"
             element={
               loading ? (
-                <div className="p-6 text-slate-600">Checking access...</div>
+                <div className="px-6 py-10 text-sm text-slate-600">Checking access...</div>
               ) : canViewPerformance ? (
                 <PerformanceDashboardPage />
               ) : (
@@ -86,7 +89,7 @@ export default function App() {
           <Route
             path="/coverage-map"
             element={
-              <Suspense fallback={<div className="p-6 text-slate-600">Loading map tools...</div>}>
+              <Suspense fallback={<div className="px-6 py-10 text-sm text-slate-600">Loading map tools...</div>}>
                 <CoverageMapPage />
               </Suspense>
             }
@@ -114,7 +117,7 @@ export default function App() {
             path="/settings"
             element={
               loading ? (
-                <div className="p-6 text-slate-600">Checking access...</div>
+                <div className="px-6 py-10 text-sm text-slate-600">Checking access...</div>
               ) : !isDemo && isSuperAdmin ? (
                 <SettingsPage />
               ) : (

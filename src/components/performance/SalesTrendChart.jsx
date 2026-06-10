@@ -1,74 +1,91 @@
 import {
-  LineChart,
+  CartesianGrid,
+  Legend,
   Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer
 } from "recharts";
+import { SectionIntro } from "../PageLayout.jsx";
 
 export default function SalesTrendChart({ data, selectedRep, colors }) {
-  const title = "Knocks and Sales Trend";
-  const knocksLabel = "Knocks";
-  const salesLabel = "Sales";
-
   const chartData = data.dailyData.map((day) => {
     const [year, month, dateNum] = day.date.split("-").map(Number);
     const localDate = new Date(year, (month || 1) - 1, dateNum || 1);
     const result = {
       date: localDate.toLocaleDateString("en-US", {
         month: "short",
-        day: "numeric"
-      })
+        day: "numeric",
+      }),
     };
 
     if (selectedRep) {
       result.knocks = day.reps[selectedRep]?.knocks || 0;
       result.sales = day.reps[selectedRep]?.sales || 0;
     } else {
-      result.knocks = Object.values(day.reps).reduce(
-        (sum, rep) => sum + rep.knocks,
-        0
-      );
-      result.sales = Object.values(day.reps).reduce(
-        (sum, rep) => sum + rep.sales,
-        0
-      );
+      result.knocks = Object.values(day.reps).reduce((sum, rep) => sum + rep.knocks, 0);
+      result.sales = Object.values(day.reps).reduce((sum, rep) => sum + rep.sales, 0);
     }
 
     return result;
   });
 
   return (
-    <div className="rounded-2xl bg-base-100 p-6 shadow">
-      <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-      <div className="mt-4 h-72">
+    <section className="glass-panel p-5">
+      <SectionIntro
+        eyebrow="Trends"
+        title="Knocks and Sales Trend"
+        description="Follow daily movement over time without switching to a separate analytics screen."
+      />
+
+      <div className="mt-5 h-80">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="date" />
-            <YAxis />
-            <Tooltip />
+          <LineChart data={chartData} margin={{ top: 8, right: 12, left: -12, bottom: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.26)" />
+            <XAxis
+              dataKey="date"
+              tick={{ fill: "#5b6a84", fontSize: 12 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              tick={{ fill: "#5b6a84", fontSize: 12 }}
+              axisLine={false}
+              tickLine={false}
+              allowDecimals={false}
+            />
+            <Tooltip
+              contentStyle={{
+                borderRadius: 18,
+                border: "1px solid rgba(121, 143, 171, 0.18)",
+                background: "rgba(255,255,255,0.94)",
+                boxShadow: "0 18px 34px rgba(9,20,35,0.12)",
+              }}
+            />
             <Legend />
             <Line
               type="monotone"
               dataKey="knocks"
               stroke={colors.knocks}
-              strokeWidth={2}
-              name={knocksLabel}
+              strokeWidth={3}
+              dot={{ r: 3 }}
+              activeDot={{ r: 5 }}
+              name="Knocks"
             />
             <Line
               type="monotone"
               dataKey="sales"
               stroke={colors.sales}
-              strokeWidth={2}
-              name={salesLabel}
+              strokeWidth={3}
+              dot={{ r: 3 }}
+              activeDot={{ r: 5 }}
+              name="Sales"
             />
           </LineChart>
         </ResponsiveContainer>
       </div>
-    </div>
+    </section>
   );
 }

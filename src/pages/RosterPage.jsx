@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   addDoc,
   collection,
@@ -15,6 +15,7 @@ import { normalizeEmail } from "../lib/access";
 import { useAuthRole } from "../hooks/useAuth";
 import { extractRosterFieldsFromPdf } from "../lib/rosterPdf";
 import Modal from "../components/Modal";
+import { PageHero, PageShell } from "../components/PageLayout.jsx";
 
 export default function RosterPage({
   canViewRoster = false,
@@ -275,7 +276,7 @@ export default function RosterPage({
       if (!addedDateFilter) return true;
       return matchesDateFilter(r.createdAt, addedDateFilter);
     });
-  }, [reps, managerFilter, addedDateFilter]);
+  }, [reps, managerFilter, addedDateFilter, matchesDateFilter]);
 
   const visibleTerminated = useMemo(() => {
     return terminated.filter((r) => {
@@ -285,7 +286,7 @@ export default function RosterPage({
       if (!addedDateFilter) return true;
       return matchesDateFilter(r.deletedAt, addedDateFilter);
     });
-  }, [terminated, managerFilter, addedDateFilter]);
+  }, [terminated, managerFilter, addedDateFilter, matchesDateFilter]);
 
   const allVisibleSelected =
     visibleReps.length > 0 &&
@@ -795,7 +796,7 @@ export default function RosterPage({
   const filteredRowCount = showTerminated ? visibleTerminated.length : visibleReps.length;
   const totalRowCount = showTerminated ? terminated.length : reps.length;
 
-  function parseLocalISODate(value) {
+  const parseLocalISODate = useCallback((value) => {
     if (!value) return null;
     if (value?.toDate) return value.toDate();
     if (typeof value === "string") {
@@ -810,17 +811,20 @@ export default function RosterPage({
       if (!Number.isNaN(parsed.getTime())) return parsed;
     }
     return null;
-  }
+  }, []);
 
-  function matchesDateFilter(value, filterISO) {
-    if (!filterISO) return true;
-    const date = parseLocalISODate(value);
-    if (!date) return false;
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}` === filterISO;
-  }
+  const matchesDateFilter = useCallback(
+    (value, filterISO) => {
+      if (!filterISO) return true;
+      const date = parseLocalISODate(value);
+      if (!date) return false;
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}` === filterISO;
+    },
+    [parseLocalISODate]
+  );
 
   const formatTerminationEmailDate = (dateObj) => {
     if (!dateObj || Number.isNaN(dateObj.getTime?.())) return "N/A";
@@ -1180,15 +1184,38 @@ export default function RosterPage({
   const terminationTimelinePreview = getTerminationTimeline(terminationEmailDraft.lastSaleDate);
 
   if (loading || accessLoading) {
-    return <div className="p-6 text-slate-600">Loading...</div>;
+    return (
+      <PageShell>
+        <div className="surface-panel px-5 py-8 text-sm text-slate-600">Loading...</div>
+      </PageShell>
+    );
   }
 
   if (!canViewRoster) {
-    return <div className="p-6 text-slate-600">You must be on the roster to view this page.</div>;
+    return (
+      <PageShell>
+        <div className="surface-panel px-5 py-8 text-sm text-slate-600">
+          You must be on the roster to view this page.
+        </div>
+      </PageShell>
+    );
   }
 
   return (
-    <div className="p-4 lg:p-6">
+    <PageShell>
+      <PageHero
+        eyebrow="Roster"
+        title="Rep records with less visual friction."
+        description="Manage active reps, restore terminated records, and handle onboarding context from a cleaner roster workspace."
+        stats={[
+          { label: "Active", value: visibleReps.length || 0 },
+          { label: "Terminated", value: terminated.length || 0 },
+          { label: "Filter", value: managerFilter || "All" },
+          { label: "Mode", value: showTerminated ? "Archive" : "Active" },
+        ]}
+      />
+
+      <div className="glass-panel p-5">
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold">Rep Roster</h1>
@@ -2021,6 +2048,7 @@ export default function RosterPage({
           </button>
         </div>
       </Modal>
-    </div>
+      </div>
+    </PageShell>
   );
 }
