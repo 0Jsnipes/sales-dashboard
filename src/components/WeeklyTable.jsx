@@ -112,6 +112,58 @@ function PlusIcon() {
   );
 }
 
+function UploadIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      fill="none"
+      className="h-4 w-4"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M10 14.5v-8" />
+      <path d="m6.75 8 3.25-3.25L13.25 8" />
+      <path d="M4 15.5h12" />
+    </svg>
+  );
+}
+
+function UploadChip({
+  title,
+  active = false,
+  className = "",
+  onClick,
+  onKeyDown,
+  onDragEnter,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className={`inline-flex h-9 min-w-[108px] cursor-pointer items-center justify-center gap-1.5 rounded-full border px-2.5 text-center transition ${
+        active
+          ? "border-slate-900 bg-slate-900/8 shadow-sm"
+          : "border-slate-300 bg-white/68 hover:border-slate-400 hover:bg-white"
+      } ${className}`}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      <UploadIcon />
+      <span className="text-[11px] font-semibold tracking-[0.02em] text-slate-900">{title}</span>
+    </div>
+  );
+}
+
 export default function WeeklyTable({
   base = "weeks",
   weekISO,
@@ -130,6 +182,8 @@ export default function WeeklyTable({
   const [highlightedRepId, setHighlightedRepId] = useState(null);
   const [inactiveModalOpen, setInactiveModalOpen] = useState(false);
   const [importStatus, setImportStatus] = useState("");
+  const [activeDropzone, setActiveDropzone] = useState("");
+  const [mobileSalesUploadOpen, setMobileSalesUploadOpen] = useState(false);
   const attFileInputRef = useRef(null);
   const tmobileFileInputRef = useRef(null);
   const knockFileInputRef = useRef(null);
@@ -687,9 +741,7 @@ export default function WeeklyTable({
     URL.revokeObjectURL(url);
   };
 
-  const handleSalesImport = async (event, importType) => {
-    const file = event.target.files?.[0];
-
+  const importSalesFile = async (file, importType) => {
     if (!file) return;
 
     try {
@@ -782,16 +834,17 @@ export default function WeeklyTable({
     } catch (error) {
       console.error(error);
       setImportStatus("Import failed. Check the console for details.");
-    } finally {
-      event.target.value = "";
     }
   };
 
-  const handleKnocksImport = async (event) => {
+  const handleSalesImport = async (event, importType) => {
     const file = event.target.files?.[0];
-
     if (!file) return;
+    await importSalesFile(file, importType);
+    event.target.value = "";
+  };
 
+  const importKnocksFile = async (file) => {
     try {
       if (metricKey !== "knocks") {
         setImportStatus("Knocks import is only available on the knocks grid.");
@@ -892,19 +945,120 @@ export default function WeeklyTable({
     } catch (error) {
       console.error(error);
       setImportStatus("Knocks import failed. Check the console for details.");
-    } finally {
-      event.target.value = "";
     }
   };
+
+  const handleKnocksImport = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await importKnocksFile(file);
+    event.target.value = "";
+  };
+
+  const getDropzoneHandlers = (zoneKey, onFile) => ({
+    onDragEnter: (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setActiveDropzone(zoneKey);
+    },
+    onDragOver: (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "copy";
+      setActiveDropzone(zoneKey);
+    },
+    onDragLeave: (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.currentTarget.contains(event.relatedTarget)) return;
+      setActiveDropzone((current) => (current === zoneKey ? "" : current));
+    },
+    onDrop: async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setActiveDropzone("");
+      const [file] = Array.from(event.dataTransfer?.files || []);
+      if (!file) return;
+      await onFile(file);
+    },
+  });
+
+  const openFilePickerOnKey = (event, ref) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      ref.current?.click();
+    }
+  };
+
+  const isSalesUploadMobileFab = canEdit && metricKey === "sales";
+  const metricLabel = metricKey === "knocks" ? "Knocks" : "Sales";
+  const mobileSummaryCard =
+    inactivitySummary.rows.length > 0 ? (
+      <div className="mt-4 grid gap-4 md:hidden">
+        <article className="mobile-rep-card">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Weekly {metricLabel}
+              </div>
+              <div className="mt-2 font-display text-2xl font-bold text-slate-950">
+                {colTotals.weekTotal}
+              </div>
+              <p className="mt-2 text-sm text-slate-600">
+                Rep-by-rep details are hidden on mobile for a cleaner view.
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Goal
+              </div>
+              <div className="mt-2 font-display text-2xl font-bold text-slate-950">
+                {colTotals.goalTotal}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/90 px-4 py-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Active Reps
+              </div>
+              <div className="mt-2 font-display text-2xl font-bold text-slate-950">
+                {inactivitySummary.rows.length}
+              </div>
+            </div>
+            <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/90 px-4 py-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Team Progress
+              </div>
+              <div className="mt-2 font-display text-2xl font-bold text-slate-950">
+                {totalsPct}%
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <div className="mb-2 flex items-center justify-between text-sm font-semibold text-slate-700">
+              <span>Team progress</span>
+              <span>{totalsPct}%</span>
+            </div>
+            <progress className="progress w-full" value={totalsPct} max="100" />
+          </div>
+        </article>
+      </div>
+    ) : null;
 
   return (
     <section className="glass-panel p-4 sm:p-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <SectionIntro
-          eyebrow="Grid"
-          title={title}
-          description="Daily inputs, totals, goals, and progress for each rep in one place. Mobile gets a stacked card layout; desktop keeps the full spreadsheet."
-        />
+        <div className="min-w-0 flex-1">
+          <SectionIntro
+            eyebrow="Grid"
+            title={title}
+            description="Daily inputs, totals, goals, and progress for each rep in one place. Mobile keeps a compact weekly summary while desktop shows the full spreadsheet."
+          />
+          {mobileSummaryCard}
+        </div>
 
         {showHeaderActions && (
           <div className="flex flex-wrap items-center gap-2 rounded-[24px] border border-slate-200/70 bg-white/74 p-2 shadow-sm">
@@ -921,13 +1075,6 @@ export default function WeeklyTable({
                   className="hidden"
                   onChange={(event) => handleSalesImport(event, "att")}
                 />
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={() => attFileInputRef.current?.click()}
-                >
-                  <span>ATT Sales Upload</span>
-                </button>
                 <input
                   ref={tmobileFileInputRef}
                   type="file"
@@ -935,13 +1082,26 @@ export default function WeeklyTable({
                   className="hidden"
                   onChange={(event) => handleSalesImport(event, "tmobile")}
                 />
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={() => tmobileFileInputRef.current?.click()}
-                >
-                  <span>T-Mobile Upload</span>
-                </button>
+                <div className="hidden items-center gap-2 md:flex">
+                  <UploadChip
+                    title="ATT Sales"
+                    active={activeDropzone === "att-sales"}
+                    onClick={() => attFileInputRef.current?.click()}
+                    onKeyDown={(event) => openFilePickerOnKey(event, attFileInputRef)}
+                    {...getDropzoneHandlers("att-sales", (file) =>
+                      importSalesFile(file, "att")
+                    )}
+                  />
+                  <UploadChip
+                    title="T-Fiber"
+                    active={activeDropzone === "tmobile-sales"}
+                    onClick={() => tmobileFileInputRef.current?.click()}
+                    onKeyDown={(event) => openFilePickerOnKey(event, tmobileFileInputRef)}
+                    {...getDropzoneHandlers("tmobile-sales", (file) =>
+                      importSalesFile(file, "tmobile")
+                    )}
+                  />
+                </div>
               </>
             )}
             {canEdit && metricKey === "knocks" && (
@@ -953,13 +1113,13 @@ export default function WeeklyTable({
                   className="hidden"
                   onChange={handleKnocksImport}
                 />
-                <button
-                  type="button"
-                  className="btn btn-sm"
+                <UploadChip
+                  title="Knocks"
+                  active={activeDropzone === "knocks-upload"}
                   onClick={() => knockFileInputRef.current?.click()}
-                >
-                  <span>Knocks Upload</span>
-                </button>
+                  onKeyDown={(event) => openFilePickerOnKey(event, knockFileInputRef)}
+                  {...getDropzoneHandlers("knocks-upload", importKnocksFile)}
+                />
               </>
             )}
             {canEdit ? (
@@ -971,6 +1131,55 @@ export default function WeeklyTable({
           </div>
         )}
       </div>
+
+      {isSalesUploadMobileFab ? (
+        <div className="fixed bottom-5 right-5 z-40 md:hidden">
+          <div className="flex flex-col items-end gap-2">
+            <div
+              className={`flex flex-col items-end gap-2 transition-all duration-200 ${
+                mobileSalesUploadOpen
+                  ? "pointer-events-auto translate-y-0 opacity-100"
+                  : "pointer-events-none translate-y-2 opacity-0"
+              }`}
+            >
+              <button
+                type="button"
+                className="rounded-2xl border border-slate-200/80 bg-white/92 px-3 py-2 text-[11px] font-semibold text-slate-900 shadow-[0_14px_28px_rgba(9,20,35,0.12)] backdrop-blur"
+                onClick={() => {
+                  setMobileSalesUploadOpen(false);
+                  attFileInputRef.current?.click();
+                }}
+              >
+                ATT Sales
+              </button>
+              <button
+                type="button"
+                className="rounded-2xl border border-slate-200/80 bg-white/92 px-3 py-2 text-[11px] font-semibold text-slate-900 shadow-[0_14px_28px_rgba(9,20,35,0.12)] backdrop-blur"
+                onClick={() => {
+                  setMobileSalesUploadOpen(false);
+                  tmobileFileInputRef.current?.click();
+                }}
+              >
+                T-Fiber Sales
+              </button>
+            </div>
+
+            <button
+              type="button"
+              className="btn btn-primary h-12 min-h-12 w-12 rounded-[18px] p-0 shadow-[0_18px_34px_rgba(9,20,35,0.18)]"
+              onClick={() => setMobileSalesUploadOpen((current) => !current)}
+              aria-expanded={mobileSalesUploadOpen}
+              aria-label={
+                mobileSalesUploadOpen
+                  ? "Close sales upload actions"
+                  : "Open sales upload actions"
+              }
+            >
+              <UploadIcon />
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {canEdit && (metricKey === "sales" || metricKey === "knocks") && importStatus ? (
         <div className="mt-4 rounded-[22px] border border-slate-200/70 bg-slate-50 px-4 py-3 text-sm text-slate-700">
@@ -989,149 +1198,6 @@ export default function WeeklyTable({
       {inactivitySummary.rows.length === 0 ? (
         <div className="mt-5 rounded-[24px] border border-dashed border-slate-200 bg-white/62 px-4 py-8 text-center text-sm text-slate-500">
           No reps found for the current filters.
-        </div>
-      ) : null}
-
-      {inactivitySummary.rows.length > 0 ? (
-        <div className="mt-5 grid gap-4 md:hidden">
-          {inactivitySummary.rows.map((r) => {
-            const arr = r[metricKey] || Array(7).fill(0);
-            const total = arr.reduce((sum, value) => sum + clampNum(value), 0);
-            const goal = clampNum(r[goalKey]);
-            const pct = goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : 0;
-            const nameHighlightClass =
-              !isSuperAdmin
-                ? ""
-                : r.inactivityTone === "red"
-                ? "bg-red-100 text-red-700 ring-1 ring-red-200"
-                : r.inactivityTone === "yellow"
-                ? "bg-amber-100 text-amber-800 ring-1 ring-amber-200"
-                : "";
-
-            return (
-              <article key={`mobile-${r.id}`} className="mobile-rep-card">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <span className={`inline-flex rounded-xl px-3 py-1 text-sm font-semibold ${nameHighlightClass}`}>
-                      {r.name}
-                    </span>
-                    <div className="mt-2 text-sm text-slate-600">
-                      {r.manager || "No manager"} - {r.team || "No location"}
-                    </div>
-                  </div>
-                  <div className="rounded-[18px] border border-slate-200/70 bg-slate-50 px-3 py-2 text-right">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                      Total
-                    </div>
-                    <div className="font-display text-2xl font-bold text-slate-950">{total}</div>
-                  </div>
-                </div>
-
-                <div className="mt-4 mobile-day-grid">
-                  {DAYS.map((day, index) => (
-                    <div key={`mobile-${r.id}-${day}`} className="mobile-day-pill">
-                      <div className="mobile-day-pill__label">
-                        {day} {fmtHeaderDate(headerDates[index])}
-                      </div>
-                      {canEdit ? (
-                        <input
-                          key={`${r.id}-${weekISO}-mobile-${index}-${arr[index] ?? 0}`}
-                          type="number"
-                          min="0"
-                          defaultValue={arr[index] ?? ""}
-                          className="input input-bordered weekly-grid-input mt-2 h-11 w-full"
-                          data-type="day"
-                          data-rep={r.id}
-                          data-day={index}
-                          onFocus={() => setHighlightedRepId(r.id)}
-                          onClick={() => setHighlightedRepId(r.id)}
-                          onBlur={(event) => saveCell(r, index, event.target.value)}
-                        />
-                      ) : (
-                        <div className="mobile-day-pill__value text-center">{arr[index] ?? 0}</div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/90 px-4 py-3">
-                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                      Goal
-                    </div>
-                    {canEdit ? (
-                      <input
-                        key={`${r.id}-${weekISO}-mobile-goal-${goal ?? 0}`}
-                        type="number"
-                        min="0"
-                        defaultValue={goal ?? ""}
-                        className="input input-bordered weekly-grid-input mt-2 h-11 w-full"
-                        data-type="goal"
-                        data-rep={r.id}
-                        onBlur={(event) => saveGoal(r, event.target.value)}
-                      />
-                    ) : (
-                      <div className="mt-2 font-display text-2xl font-bold text-slate-950">
-                        {goal === 0 ? 0 : goal || ""}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/90 px-4 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Progress
-                      </span>
-                      <span className="text-sm font-semibold text-slate-700">{pct}%</span>
-                    </div>
-                    <div className="mt-3">
-                      <progress className="progress w-full" value={pct} max="100" />
-                    </div>
-                  </div>
-                </div>
-
-                {canEdit ? (
-                  <div className="mt-4 flex justify-end gap-2">
-                    <button className="btn btn-outline btn-sm" onClick={() => setRepToEdit(r)} type="button">
-                      Edit
-                    </button>
-                    <button className="btn btn-error btn-sm" onClick={() => removeRep(r.id)} type="button">
-                      Delete
-                    </button>
-                  </div>
-                ) : null}
-              </article>
-            );
-          })}
-
-          <article className="mobile-rep-card">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Weekly Totals
-                </div>
-                <div className="mt-2 font-display text-2xl font-bold text-slate-950">
-                  {colTotals.weekTotal}
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Goal
-                </div>
-                <div className="mt-2 font-display text-2xl font-bold text-slate-950">
-                  {colTotals.goalTotal}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <div className="mb-2 flex items-center justify-between text-sm font-semibold text-slate-700">
-                <span>Team progress</span>
-                <span>{totalsPct}%</span>
-              </div>
-              <progress className="progress w-full" value={totalsPct} max="100" />
-            </div>
-          </article>
         </div>
       ) : null}
 

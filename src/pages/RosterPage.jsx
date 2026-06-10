@@ -268,6 +268,36 @@ export default function RosterPage({
     )];
   }, [reps]);
 
+  const parseLocalISODate = useCallback((value) => {
+    if (!value) return null;
+    if (value?.toDate) return value.toDate();
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (isoMatch) {
+        const [, y, m, d] = isoMatch;
+        return new Date(Number(y), Number(m) - 1, Number(d));
+      }
+      const parsed = new Date(trimmed);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    return null;
+  }, []);
+
+  const matchesDateFilter = useCallback(
+    (value, filterISO) => {
+      if (!filterISO) return true;
+      const date = parseLocalISODate(value);
+      if (!date) return false;
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}` === filterISO;
+    },
+    [parseLocalISODate]
+  );
+
   const visibleReps = useMemo(() => {
     return reps.filter((r) => {
       if (managerFilter !== "All" && (r.manager || "") !== managerFilter) {
@@ -795,36 +825,6 @@ export default function RosterPage({
 
   const filteredRowCount = showTerminated ? visibleTerminated.length : visibleReps.length;
   const totalRowCount = showTerminated ? terminated.length : reps.length;
-
-  const parseLocalISODate = useCallback((value) => {
-    if (!value) return null;
-    if (value?.toDate) return value.toDate();
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (!trimmed) return null;
-      const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      if (isoMatch) {
-        const [, y, m, d] = isoMatch;
-        return new Date(Number(y), Number(m) - 1, Number(d));
-      }
-      const parsed = new Date(trimmed);
-      if (!Number.isNaN(parsed.getTime())) return parsed;
-    }
-    return null;
-  }, []);
-
-  const matchesDateFilter = useCallback(
-    (value, filterISO) => {
-      if (!filterISO) return true;
-      const date = parseLocalISODate(value);
-      if (!date) return false;
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, "0");
-      const day = String(date.getDate()).padStart(2, "0");
-      return `${year}-${month}-${day}` === filterISO;
-    },
-    [parseLocalISODate]
-  );
 
   const formatTerminationEmailDate = (dateObj) => {
     if (!dateObj || Number.isNaN(dateObj.getTime?.())) return "N/A";

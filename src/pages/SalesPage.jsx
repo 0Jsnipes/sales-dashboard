@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { PageHero, PageShell } from "../components/PageLayout.jsx";
 import TeamFilter from "../components/TeamFilter.jsx";
 import WeekSwitcher from "../components/WeekSwitcher.jsx";
-import WeeklyChart from "../components/WeeklyChart.jsx";
+import WeeklyManagerAccordion from "../components/WeeklyManagerAccordion.jsx";
 import WeeklyTable from "../components/WeeklyTable.jsx";
 import { useAuthRole } from "../hooks/useAuth";
 import { startOfWeek, toISO } from "../utils/weeks.js";
@@ -64,11 +64,9 @@ export default function SalesPage() {
         />
       </div>
 
-      <WeeklyChart
+      <WeeklyManagerAccordion
         base="weeks"
         weekISO={weekISO}
-        metricKey="sales"
-        title="Weekly Sales"
         teamFilter={location}
         managerFilter={manager}
       />
