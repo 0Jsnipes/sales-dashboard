@@ -7,6 +7,7 @@ import {
   collection,
   setDoc,
   getDocs,
+  runTransaction,
   serverTimestamp,
 } from "firebase/firestore";
 import * as XLSX from "xlsx";
@@ -848,26 +849,35 @@ export default function WeeklyTable({
             continue;
           }
 
-          const knocks = Array.isArray(matchingRep.knocks)
-            ? [...matchingRep.knocks]
-            : Array(7).fill(0);
+          const repRef = doc(db, base, weekISO, "reps", matchingRep.id);
+          const updatedKnocks = await runTransaction(db, async (transaction) => {
+            const repSnap = await transaction.get(repRef);
+            const repData = repSnap.exists() ? repSnap.data() : matchingRep;
+            const knocks =
+              Array.isArray(repData.knocks) && repData.knocks.length === 7
+                ? [...repData.knocks]
+                : Array(7).fill(0);
 
-          knocks[targetDayIndex] =
-            clampNum(knocks[targetDayIndex]) + knockData.totalKnocks;
-          matchingRep.knocks = knocks;
+            knocks[targetDayIndex] =
+              clampNum(knocks[targetDayIndex]) + knockData.totalKnocks;
 
-          await setDoc(
-            doc(db, base, weekISO, "reps", matchingRep.id),
-            {
-              name: matchingRep.name || "",
-              manager: matchingRep.manager || "",
-              team: matchingRep.team || "",
-              salesGoal: clampNum(matchingRep.salesGoal),
-              knocksGoal: clampNum(matchingRep.knocksGoal),
-              knocks,
-            },
-            { merge: true }
-          );
+            transaction.set(
+              repRef,
+              {
+                name: cleanCell(repData.name ?? matchingRep.name),
+                manager: cleanCell(repData.manager ?? matchingRep.manager),
+                team: cleanCell(repData.team ?? matchingRep.team),
+                salesGoal: clampNum(repData.salesGoal ?? matchingRep.salesGoal),
+                knocksGoal: clampNum(repData.knocksGoal ?? matchingRep.knocksGoal),
+                knocks,
+              },
+              { merge: true }
+            );
+
+            return knocks;
+          });
+
+          matchingRep.knocks = updatedKnocks;
 
           matchedCount += 1;
         }
