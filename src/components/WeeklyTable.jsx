@@ -1039,7 +1039,7 @@ export default function WeeklyTable({
                           type="number"
                           min="0"
                           defaultValue={arr[index] ?? ""}
-                          className="input input-bordered mt-2 h-11 w-full text-center"
+                          className="input input-bordered weekly-grid-input mt-2 h-11 w-full"
                           data-type="day"
                           data-rep={r.id}
                           data-day={index}
@@ -1048,7 +1048,7 @@ export default function WeeklyTable({
                           onBlur={(event) => saveCell(r, index, event.target.value)}
                         />
                       ) : (
-                        <div className="mobile-day-pill__value">{arr[index] ?? 0}</div>
+                        <div className="mobile-day-pill__value text-center">{arr[index] ?? 0}</div>
                       )}
                     </div>
                   ))}
@@ -1065,7 +1065,7 @@ export default function WeeklyTable({
                         type="number"
                         min="0"
                         defaultValue={goal ?? ""}
-                        className="input input-bordered mt-2 h-11 w-full text-center"
+                        className="input input-bordered weekly-grid-input mt-2 h-11 w-full"
                         data-type="goal"
                         data-rep={r.id}
                         onBlur={(event) => saveGoal(r, event.target.value)}
@@ -1138,14 +1138,14 @@ export default function WeeklyTable({
       {inactivitySummary.rows.length > 0 ? (
         <div className="data-table-shell mt-5 hidden md:block">
           <div className="data-table-scroll">
-            <table className="table w-full min-w-[1120px]">
-              <thead className="bg-slate-100/90 text-slate-700 [&>tr>th]:border-b [&>tr>th]:border-slate-200">
+            <table className="table table-sm w-full table-fixed">
+              <thead className="bg-slate-100/90 text-slate-700 [&>tr>th]:border-b [&>tr>th]:border-slate-200 [&>tr>th]:px-2">
                 <tr>
-                  <th className="min-w-[180px]">Agent</th>
-                  <th className="min-w-[140px]">Manager</th>
+                  <th className="w-[15%]">Agent</th>
+                  <th className="w-[11%]">Manager</th>
 
                   {DAYS.map((d, i) => (
-                    <th key={d} className={`text-center ${!canEdit ? "px-5" : ""}`}>
+                    <th key={d} className="w-[5%] px-1 text-center">
                       <div className="flex flex-col items-center leading-tight">
                         <span className="font-medium">{d}</span>
                         <span className="text-xs text-slate-500">{fmtHeaderDate(headerDates[i])}</span>
@@ -1153,11 +1153,11 @@ export default function WeeklyTable({
                     </th>
                   ))}
 
-                  <th className={`text-center ${!canEdit ? "px-5" : ""}`}>TOTAL</th>
-                  <th className={`min-w-[100px] text-center ${!canEdit ? "px-5" : ""}`}>GOAL</th>
-                  <th className="min-w-[160px]">Progress</th>
-                  <th className="min-w-[140px]">Location</th>
-                  {canEdit ? <th className="min-w-[140px]" /> : null}
+                  <th className="w-[5%] px-1 text-center">TOTAL</th>
+                  <th className="w-[6%] px-1 text-center">GOAL</th>
+                  <th className="w-[12%] px-2">Progress</th>
+                  <th className="w-[8%] px-2">Location</th>
+                  {canEdit ? <th className="w-[8%] px-2" /> : null}
                 </tr>
               </thead>
 
@@ -1165,7 +1165,7 @@ export default function WeeklyTable({
                 className="
                   [&>tr:nth-child(odd)]:bg-white
                   [&>tr:nth-child(even)]:bg-slate-50
-                  [&>tr>td]:border-b [&>tr>td]:border-slate-200
+                  [&>tr>td]:border-b [&>tr>td]:border-slate-200 [&>tr>td]:px-2
                 "
               >
                 {inactivitySummary.rows.map((r) => {
@@ -1186,22 +1186,27 @@ export default function WeeklyTable({
                   return (
                     <tr key={`${r.id}-${r.name}`} className={isHighlighted ? "!bg-slate-100" : undefined}>
                       <td className="font-medium">
-                        <span className={`inline-flex rounded-lg px-2 py-1 ${nameHighlightClass || ""}`}>
+                        <span
+                          className={`inline-flex max-w-full truncate rounded-lg px-2 py-1 ${nameHighlightClass || ""}`}
+                          title={r.name}
+                        >
                           {r.name}
                         </span>
                       </td>
 
-                      <td className="text-sm">{r.manager || ""}</td>
+                      <td className="truncate text-sm" title={r.manager || ""}>
+                        {r.manager || ""}
+                      </td>
 
                       {DAYS.map((d, i) => (
-                        <td key={d} className={`text-center ${!canEdit ? "px-5" : ""}`}>
+                        <td key={d} className="px-1 text-center">
                           {canEdit ? (
                             <input
                               key={`${r.id}-${weekISO}-${i}-${arr[i] ?? 0}`}
                               type="number"
                               min="0"
                               defaultValue={arr[i] ?? ""}
-                              className="input input-bordered input-xs w-16 text-center"
+                              className="input input-bordered input-xs weekly-grid-input h-8 w-11 min-h-8"
                               data-type="day"
                               data-rep={r.id}
                               data-day={i}
@@ -1211,48 +1216,56 @@ export default function WeeklyTable({
                               onKeyDown={handleKeyNav}
                             />
                           ) : (
-                            <span>{arr[i] ?? ""}</span>
+                            <span className="inline-flex w-full justify-center">{arr[i] ?? ""}</span>
                           )}
                         </td>
                       ))}
 
-                      <td className={`text-center font-semibold ${!canEdit ? "px-5" : ""}`}>{total}</td>
+                      <td className="px-1 text-center font-semibold">{total}</td>
 
-                      <td className={`text-center ${!canEdit ? "px-5" : ""}`}>
+                      <td className="px-1 text-center">
                         {canEdit ? (
                           <input
                             key={`${r.id}-${weekISO}-goal-${goal ?? 0}`}
                             type="number"
                             min="0"
                             defaultValue={goal ?? ""}
-                            className="input input-bordered input-xs w-20 text-center"
+                            className="input input-bordered input-xs weekly-grid-input h-8 w-14 min-h-8"
                             data-type="goal"
                             data-rep={r.id}
                             onBlur={(e) => saveGoal(r, e.target.value)}
                             onKeyDown={handleKeyNav}
                           />
                         ) : (
-                          <span>{goal === 0 ? 0 : goal || ""}</span>
+                          <span className="inline-flex w-full justify-center">
+                            {goal === 0 ? 0 : goal || ""}
+                          </span>
                         )}
                       </td>
 
                       <td>
-                        <div className="flex items-center gap-2">
-                          <progress className="progress w-28" value={pct} max="100" />
-                          <span className="w-10 text-xs opacity-70">{pct}%</span>
+                        <div className="flex items-center gap-1">
+                          <progress className="progress w-24" value={pct} max="100" />
+                          <span className="w-8 text-[11px] opacity-70">{pct}%</span>
                         </div>
                       </td>
 
-                      <td>{r.team || ""}</td>
+                      <td className="truncate text-sm" title={r.team || ""}>
+                        {r.team || ""}
+                      </td>
 
                       {canEdit ? (
                         <td className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <button className="btn btn-ghost btn-xs" onClick={() => setRepToEdit(r)} type="button">
+                          <div className="flex justify-end gap-1">
+                            <button
+                              className="btn btn-ghost btn-xs h-8 min-h-8 px-2 text-[11px]"
+                              onClick={() => setRepToEdit(r)}
+                              type="button"
+                            >
                               Edit
                             </button>
                             <button
-                              className="btn btn-ghost btn-xs text-error"
+                              className="btn btn-ghost btn-xs h-8 min-h-8 px-2 text-[11px] text-error"
                               onClick={() => removeRep(r.id)}
                               type="button"
                             >
@@ -1271,16 +1284,16 @@ export default function WeeklyTable({
                   <th className="text-right">Totals</th>
                   <th />
                   {colTotals.dayTotals.map((value, index) => (
-                    <th key={index} className={`text-center ${!canEdit ? "px-5" : ""}`}>
+                    <th key={index} className="px-1 text-center">
                       {value}
                     </th>
                   ))}
-                  <th className={`text-center ${!canEdit ? "px-5" : ""}`}>{colTotals.weekTotal}</th>
-                  <th className={`text-center ${!canEdit ? "px-5" : ""}`}>{colTotals.goalTotal}</th>
+                  <th className="px-1 text-center">{colTotals.weekTotal}</th>
+                  <th className="px-1 text-center">{colTotals.goalTotal}</th>
                   <th>
-                    <div className="flex items-center gap-2">
-                      <progress className="progress w-28" value={totalsPct} max="100" />
-                      <span className="w-10 text-xs opacity-70">{totalsPct}%</span>
+                    <div className="flex items-center gap-1">
+                      <progress className="progress w-24" value={totalsPct} max="100" />
+                      <span className="w-8 text-[11px] opacity-70">{totalsPct}%</span>
                     </div>
                   </th>
                   <th>-</th>

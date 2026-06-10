@@ -481,6 +481,20 @@
     color: var(--app-primary);
   }
 
+  .weekly-grid-input {
+    appearance: textfield;
+    text-align: center;
+    text-align-last: center;
+    font-variant-numeric: tabular-nums;
+    padding-inline: 0.45rem;
+  }
+
+  .weekly-grid-input::-webkit-outer-spin-button,
+  .weekly-grid-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
   .card,
   .modal-box,
   .navbar,

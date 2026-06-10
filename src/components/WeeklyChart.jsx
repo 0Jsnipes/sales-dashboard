@@ -161,7 +161,7 @@ export default function WeeklyChart({
       <SectionIntro
         eyebrow="Chart"
         title={title}
-        description="A weekly roll-up by rep. On smaller screens, the chart scrolls sideways instead of compressing labels into unreadable text."
+        description="A weekly roll-up by rep. Phones show simple weekly totals, while larger screens keep the full bar chart."
       />
 
       {rows === null ? (
@@ -175,45 +175,70 @@ export default function WeeklyChart({
       ) : null}
 
       {rows && rows.length > 0 ? (
-        <div className="mt-5 overflow-x-auto">
-          <div style={{ width: chartWidth, height: 320 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={rows} margin={{ top: 8, right: 12, left: -18, bottom: 28 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.26)" />
-                <XAxis
-                  dataKey="name"
-                  tick={{ fill: CHART_PRIMARY, fontSize: 12 }}
-                  tickMargin={12}
-                  axisLine={false}
-                  tickLine={false}
-                  interval={0}
-                  angle={-24}
-                  textAnchor="end"
-                />
-                <YAxis
-                  allowDecimals={false}
-                  domain={[0, maxY]}
-                  tick={{ fill: CHART_PRIMARY, fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip
-                  cursor={{ fill: "rgba(216, 244, 91, 0.08)" }}
-                  contentStyle={{
-                    background: "rgba(255,255,255,0.94)",
-                    border: "1px solid rgba(121, 143, 171, 0.18)",
-                    borderRadius: 18,
-                    boxShadow: "0 18px 34px rgba(9,20,35,0.12)",
-                    fontSize: 12,
-                  }}
-                  labelStyle={{ color: CHART_PRIMARY, fontWeight: 700 }}
-                  itemStyle={{ color: CHART_PRIMARY }}
-                />
-                <Bar dataKey="total" fill={CHART_ACCENT} radius={[12, 12, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+        <>
+          <div className="mt-5 grid gap-3 md:hidden">
+            {rows.map((row) => (
+              <article
+                key={`mobile-total-${row.id}`}
+                className="rounded-[22px] border border-slate-200/70 bg-white/72 px-4 py-3"
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-950">
+                      {row.name}
+                    </div>
+                    <div className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Weekly Total
+                    </div>
+                  </div>
+                  <div className="shrink-0 font-display text-2xl font-bold text-slate-950">
+                    {row.total}
+                  </div>
+                </div>
+              </article>
+            ))}
           </div>
-        </div>
+
+          <div className="mt-5 hidden overflow-x-auto md:block">
+            <div style={{ width: chartWidth, height: 320 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={rows} margin={{ top: 8, right: 12, left: -18, bottom: 28 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.26)" />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fill: CHART_PRIMARY, fontSize: 12 }}
+                    tickMargin={12}
+                    axisLine={false}
+                    tickLine={false}
+                    interval={0}
+                    angle={-24}
+                    textAnchor="end"
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    domain={[0, maxY]}
+                    tick={{ fill: CHART_PRIMARY, fontSize: 12 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "rgba(216, 244, 91, 0.08)" }}
+                    contentStyle={{
+                      background: "rgba(255,255,255,0.94)",
+                      border: "1px solid rgba(121, 143, 171, 0.18)",
+                      borderRadius: 18,
+                      boxShadow: "0 18px 34px rgba(9,20,35,0.12)",
+                      fontSize: 12,
+                    }}
+                    labelStyle={{ color: CHART_PRIMARY, fontWeight: 700 }}
+                    itemStyle={{ color: CHART_PRIMARY }}
+                  />
+                  <Bar dataKey="total" fill={CHART_ACCENT} radius={[12, 12, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </>
       ) : null}
     </section>
   );
