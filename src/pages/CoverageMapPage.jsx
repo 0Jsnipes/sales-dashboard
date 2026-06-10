@@ -28,6 +28,16 @@ const providerMeta = {
 
 const NormalLeadsFormatter = lazy(() => import("../components/NormalLeadsFormatter.jsx"));
 
+function extractZipCodesFromInput(value = "") {
+  const zipCodes = String(value || "")
+    .split(/[\s,;]+/)
+    .map((token) => token.replace(/\D/g, ""))
+    .filter((token) => token.length >= 5)
+    .map((token) => token.slice(0, 5));
+
+  return Array.from(new Set(zipCodes));
+}
+
 function readLocalStorageValue(key, fallbackValue) {
   if (typeof window === "undefined") return fallbackValue;
 
@@ -193,7 +203,7 @@ function getHexPresentation(hexId, visibleAssignments, leadHighlightSet, provide
       ? fillColor
       : "#cbd5e1";
   const tooltipText = isLeadHighlighted
-    ? "Normal leads ZIP area"
+    ? "ATT Leads ZIP area"
     : assignedProvider
       ? `${providerMeta[assignedProvider].label} hex`
       : "Unassigned hex";
@@ -257,6 +267,9 @@ export default function CoverageMapPage() {
   const sharedMapRef = useMemo(() => doc(db, ...SHARED_MAP_DOC_PATH), []);
   const [notesOpen, setNotesOpen] = useState(false);
   const [leadUploadOpen, setLeadUploadOpen] = useState(false);
+  const [zipListOpen, setZipListOpen] = useState(false);
+  const [manualZipInput, setManualZipInput] = useState("");
+  const [manualZipError, setManualZipError] = useState("");
   const [notes, setNotes] = useState(() => readLocalStorageValue(NOTES_STORAGE_KEY, ""));
   const [draftNotes, setDraftNotes] = useState(() =>
     readLocalStorageValue(NOTES_DRAFT_STORAGE_KEY, readLocalStorageValue(NOTES_STORAGE_KEY, ""))
@@ -624,6 +637,7 @@ export default function CoverageMapPage() {
       failedZipCodes: [],
       loading: false,
     });
+    setZipListOpen(false);
   };
 
   const removeHighlightedZip = (zipCode) => {
@@ -665,26 +679,7 @@ export default function CoverageMapPage() {
       worker.postMessage({ id, payload }, transferList);
     });
 
-  const handleNormalLeadsFormatted = async (file, dateStamp) => {
-    setLeadHighlightMeta({
-      zipCodes: leadHighlightMeta.zipCodes,
-      failedZipCodes: [],
-      loading: true,
-    });
-    setSharedStateError("");
-
-    const fileBuffer = await file.arrayBuffer();
-    const result = await runLeadWorker(
-      {
-        fileBuffer,
-        fileName: file?.name || "",
-        dateStamp,
-        hexGrid,
-        existingZipMap: leadHighlightZipMap,
-      },
-      [fileBuffer]
-    );
-
+  const applyLeadHighlightResult = (result) => {
     setLeadHighlightHexes(result.highlightedHexIds || []);
     setLeadHighlightZipMap(result.mergedZipMap || {});
     setLeadHighlightMeta({
@@ -692,8 +687,74 @@ export default function CoverageMapPage() {
       failedZipCodes: result.failedZipCodes || [],
       loading: false,
     });
+  };
 
-    return result;
+  const setLeadHighlightLoading = () => {
+    setLeadHighlightMeta((current) => ({
+      ...current,
+      failedZipCodes: [],
+      loading: true,
+    }));
+  };
+
+  const handleNormalLeadsFormatted = async (file, dateStamp) => {
+    setLeadHighlightLoading();
+    setSharedStateError("");
+
+    const fileBuffer = await file.arrayBuffer();
+    try {
+      const result = await runLeadWorker(
+        {
+          fileBuffer,
+          fileName: file?.name || "",
+          dateStamp,
+          hexGrid,
+          existingZipMap: leadHighlightZipMap,
+        },
+        [fileBuffer]
+      );
+
+      applyLeadHighlightResult(result);
+      return result;
+    } catch (error) {
+      setLeadHighlightMeta((current) => ({
+        ...current,
+        loading: false,
+      }));
+      throw error;
+    }
+  };
+
+  const handleManualZipAdd = async () => {
+    const zipCodes = extractZipCodesFromInput(manualZipInput);
+
+    if (!zipCodes.length) {
+      setManualZipError("Enter at least one valid 5-digit ZIP code.");
+      return;
+    }
+
+    setManualZipError("");
+    setLeadHighlightLoading();
+    setSharedStateError("");
+
+    try {
+      const result = await runLeadWorker({
+        zipCodes,
+        hexGrid,
+        existingZipMap: leadHighlightZipMap,
+      });
+
+      applyLeadHighlightResult(result);
+      setManualZipInput("");
+      setZipListOpen(true);
+    } catch (error) {
+      console.error(error);
+      setLeadHighlightMeta((current) => ({
+        ...current,
+        loading: false,
+      }));
+      setManualZipError(error?.message || "Failed to add ZIP codes.");
+    }
   };
 
   const saveNotes = () => {
@@ -719,7 +780,8 @@ export default function CoverageMapPage() {
               </p>
               {leadHighlightMeta.zipCodes.length > 0 ? (
                 <p className="mt-3 text-sm font-medium text-lime-700">
-                  Normal leads highlighted for ZIPs: {leadHighlightMeta.zipCodes.join(", ")}
+                  ATT Leads highlighted across {leadHighlightMeta.zipCodes.length} ZIP
+                  {leadHighlightMeta.zipCodes.length === 1 ? "" : "s"}.
                 </p>
               ) : null}
               {leadHighlightMeta.failedZipCodes.length > 0 ? (
@@ -742,7 +804,7 @@ export default function CoverageMapPage() {
                 className="rounded-full border border-lime-300 bg-lime-500 px-4 py-2 text-sm font-semibold text-slate-950"
                 onClick={() => setLeadUploadOpen(true)}
               >
-                Lead Upload
+                ATT Leads
               </button>
               <button
                 type="button"
@@ -875,7 +937,7 @@ export default function CoverageMapPage() {
                 ))}
               <div className="flex items-center gap-2 text-sm text-slate-700">
                 <span className="h-3 w-3 rounded-full" style={{ backgroundColor: LEAD_HIGHLIGHT_COLOR }} />
-                <span>Normal Leads ZIPs</span>
+                <span>ATT Leads ZIPs</span>
               </div>
             </div>
           </div>
@@ -966,9 +1028,9 @@ export default function CoverageMapPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
                 Lead Tools
               </p>
-              <h2 className="mt-1 text-xl font-bold text-slate-900">Lead Upload</h2>
+              <h2 className="mt-1 text-xl font-bold text-slate-900">ATT Leads</h2>
               <p className="mt-2 text-sm text-slate-600">
-                Upload Salesforce exports as Normal Leads and manage highlighted ZIPs.
+                Upload Salesforce exports as ATT Leads or add ZIPs manually.
               </p>
             </div>
             <button
@@ -990,42 +1052,104 @@ export default function CoverageMapPage() {
             <NormalLeadsFormatter onFormatComplete={handleNormalLeadsFormatted} />
           </Suspense>
 
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Add ZIPs Manually</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Paste one ZIP or a list of ZIPs separated by commas, spaces, or line breaks.
+                </p>
+              </div>
+              <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                Direct Add
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+              <textarea
+                value={manualZipInput}
+                onChange={(event) => {
+                  setManualZipInput(event.target.value);
+                  if (manualZipError) setManualZipError("");
+                }}
+                placeholder="30301, 75201, 78704"
+                className="min-h-[110px] w-full resize-none rounded-3xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-slate-400 focus:bg-white"
+              />
+              <div className="flex flex-col justify-between gap-3">
+                <button
+                  type="button"
+                  className="btn rounded-full border-0 bg-slate-900 text-white hover:bg-slate-800"
+                  onClick={handleManualZipAdd}
+                  disabled={leadHighlightMeta.loading}
+                >
+                  {leadHighlightMeta.loading ? "Adding ZIPs..." : "Add ZIPs"}
+                </button>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-500">
+                  ZIP highlights stay on the map until you remove them.
+                </div>
+              </div>
+            </div>
+
+            {manualZipError ? (
+              <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {manualZipError}
+              </div>
+            ) : null}
+          </div>
+
           <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-lg font-bold text-slate-900">Highlighted ZIPs</h3>
                 <p className="mt-1 text-sm text-slate-600">
-                  These ZIPs stay highlighted across uploads until removed.
+                  Highlights stay active across uploads and manual adds until removed.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={clearLeadHighlights}
-                className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600"
-                disabled={leadHighlightMeta.zipCodes.length === 0}
-              >
-                Clear All
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setZipListOpen((current) => !current)}
+                  className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                  disabled={leadHighlightMeta.zipCodes.length === 0}
+                >
+                  {zipListOpen ? "Hide ZIPs" : `Show ZIPs (${leadHighlightMeta.zipCodes.length})`}
+                </button>
+                <button
+                  type="button"
+                  onClick={clearLeadHighlights}
+                  className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600"
+                  disabled={leadHighlightMeta.zipCodes.length === 0}
+                >
+                  Clear All
+                </button>
+              </div>
             </div>
 
             {leadHighlightMeta.zipCodes.length > 0 ? (
-              <div className="mt-4 flex flex-wrap gap-2">
-                {leadHighlightMeta.zipCodes.map((zipCode) => (
-                  <div
-                    key={zipCode}
-                    className="flex items-center gap-2 rounded-full border border-lime-200 bg-white px-3 py-2 text-sm text-slate-800"
-                  >
-                    <span className="font-semibold">{zipCode}</span>
-                    <button
-                      type="button"
-                      className="rounded-full border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600 hover:border-rose-200 hover:text-rose-600"
-                      onClick={() => removeHighlightedZip(zipCode)}
+              zipListOpen ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {leadHighlightMeta.zipCodes.map((zipCode) => (
+                    <div
+                      key={zipCode}
+                      className="flex items-center gap-2 rounded-full border border-lime-200 bg-white px-3 py-2 text-sm text-slate-800"
                     >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
+                      <span className="font-semibold">{zipCode}</span>
+                      <button
+                        type="button"
+                        className="rounded-full border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600 hover:border-rose-200 hover:text-rose-600"
+                        onClick={() => removeHighlightedZip(zipCode)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-600">
+                  {leadHighlightMeta.zipCodes.length} ZIP
+                  {leadHighlightMeta.zipCodes.length === 1 ? "" : "s"} currently highlighted.
+                </div>
+              )
             ) : (
               <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
                 No ZIPs are highlighted yet.

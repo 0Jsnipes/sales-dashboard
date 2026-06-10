@@ -156,6 +156,56 @@ async function geocodeZipCode(zipCode) {
   return null;
 }
 
+async function mergeZipCodesIntoMap(zipCodesInput, existingZipMap, hexGrid) {
+  const zipCodes = Array.from(
+    new Set((zipCodesInput || []).map((zipCode) => extractZip(zipCode)).filter(Boolean))
+  );
+
+  if (!zipCodes.length) {
+    throw new Error("No valid ZIP codes were provided.");
+  }
+
+  const mergedZipMap = { ...(existingZipMap || {}) };
+  const failedZipCodes = [];
+
+  for (const zipCode of zipCodes) {
+    if (Array.isArray(mergedZipMap[zipCode]) && mergedZipMap[zipCode].length > 0) {
+      continue;
+    }
+
+    const center = await geocodeZipCode(zipCode);
+    if (!center) {
+      failedZipCodes.push(zipCode);
+      continue;
+    }
+
+    const hexIds = getHexIdsNearCenter(center, hexGrid || []);
+    if (!hexIds.length) {
+      failedZipCodes.push(zipCode);
+      continue;
+    }
+
+    mergedZipMap[zipCode] = hexIds;
+  }
+
+  const allZipCodes = Object.keys(mergedZipMap).sort();
+  const highlightedHexIds = Array.from(
+    new Set(
+      Object.values(mergedZipMap)
+        .flat()
+        .filter((value) => typeof value === "string")
+    )
+  );
+
+  return {
+    zipCodes,
+    allZipCodes,
+    highlightedHexIds,
+    mergedZipMap,
+    failedZipCodes,
+  };
+}
+
 async function formatAndMapLeads(payload) {
   const workbook = XLSX.read(payload.fileBuffer, {
     type: "array",
@@ -176,38 +226,22 @@ async function formatAndMapLeads(payload) {
   const zipCodes = Array.from(new Set(extractedZipCodes.filter(Boolean)));
   const baseName = buildBaseName(extractedZipCodes, payload.dateStamp);
   const outputType = /\.csv$/i.test(String(payload.fileName || "")) ? "csv" : "xlsx";
-
-  const mergedZipMap = { ...(payload.existingZipMap || {}) };
-  const failedZipCodes = [];
-
-  for (const zipCode of zipCodes) {
-    if (Array.isArray(mergedZipMap[zipCode]) && mergedZipMap[zipCode].length > 0) {
-      continue;
-    }
-
-    const center = await geocodeZipCode(zipCode);
-    if (!center) {
-      failedZipCodes.push(zipCode);
-      continue;
-    }
-
-    const hexIds = getHexIdsNearCenter(center, payload.hexGrid || []);
-    if (!hexIds.length) {
-      failedZipCodes.push(zipCode);
-      continue;
-    }
-
-    mergedZipMap[zipCode] = hexIds;
-  }
-
-  const allZipCodes = Object.keys(mergedZipMap).sort();
-  const highlightedHexIds = Array.from(
-    new Set(
-      Object.values(mergedZipMap)
-        .flat()
-        .filter((value) => typeof value === "string")
-    )
-  );
+  const mappingResult =
+    zipCodes.length > 0
+      ? await mergeZipCodesIntoMap(zipCodes, payload.existingZipMap, payload.hexGrid)
+      : {
+          zipCodes: [],
+          allZipCodes: Object.keys(payload.existingZipMap || {}).sort(),
+          highlightedHexIds: Array.from(
+            new Set(
+              Object.values(payload.existingZipMap || {})
+                .flat()
+                .filter((value) => typeof value === "string")
+            )
+          ),
+          mergedZipMap: { ...(payload.existingZipMap || {}) },
+          failedZipCodes: [],
+        };
 
   return {
     rows,
@@ -216,18 +250,21 @@ async function formatAndMapLeads(payload) {
     zipCodes,
     baseName,
     outputType,
-    allZipCodes,
-    highlightedHexIds,
-    mergedZipMap,
-    failedZipCodes,
+    ...mappingResult,
   };
+}
+
+async function mapZipCodesOnly(payload) {
+  return mergeZipCodesIntoMap(payload.zipCodes || [], payload.existingZipMap, payload.hexGrid);
 }
 
 self.onmessage = async (event) => {
   const { id, payload } = event.data || {};
 
   try {
-    const result = await formatAndMapLeads(payload);
+    const result = payload?.fileBuffer
+      ? await formatAndMapLeads(payload)
+      : await mapZipCodesOnly(payload);
     self.postMessage({ id, ok: true, result });
   } catch (error) {
     self.postMessage({
