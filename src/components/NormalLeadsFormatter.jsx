@@ -1,8 +1,5 @@
 import { useState } from "react";
-import {
-  downloadNormalLeadsFile,
-  prepareNormalLeadsFile,
-} from "../utils/normalLeadsFormatter.js";
+import { downloadNormalLeadsFile } from "../utils/normalLeadsFormatter.js";
 
 function getTodayStamp() {
   const now = new Date();
@@ -28,12 +25,9 @@ export default function NormalLeadsFormatter({ onFormatComplete }) {
     setError("");
 
     try {
-      const prepared = await prepareNormalLeadsFile(file, getTodayStamp());
+      const prepared = await onFormatComplete(file, getTodayStamp());
       downloadNormalLeadsFile(prepared.rows, prepared.baseName, prepared.outputType);
       setSummary(prepared);
-      if (onFormatComplete) {
-        await onFormatComplete(prepared);
-      }
     } catch (err) {
       console.error(err);
       setError(err?.message || "Failed to build the Normal Leads file.");

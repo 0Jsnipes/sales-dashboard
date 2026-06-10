@@ -4,6 +4,7 @@ import { defaultProviderColors, starterAreas } from "../lib/coverageMapData.js";
 import { db } from "../lib/firebase.js";
 import { useAuthRole } from "../hooks/useAuth.js";
 import NormalLeadsFormatter from "../components/NormalLeadsFormatter.jsx";
+import Modal from "../components/Modal.jsx";
 
 const NOTES_STORAGE_KEY = "coverage-map-notes";
 const NOTES_DRAFT_STORAGE_KEY = "coverage-map-notes-draft";
@@ -128,67 +129,8 @@ function createHexPolygon(centerLat, centerLng, radius) {
   });
 }
 
-function getHexDistance(pointA, pointB) {
-  const [latA, lngA] = pointA;
-  const [latB, lngB] = pointB;
-  const avgLatRadians = (((latA + latB) / 2) * Math.PI) / 180;
-  const latDelta = latA - latB;
-  const lngDelta = (lngA - lngB) * Math.cos(avgLatRadians);
-  return Math.sqrt(latDelta * latDelta + lngDelta * lngDelta);
-}
-
-async function geocodeZipCode(zipCode) {
-  const providers = [
-    async () => {
-      const endpoint = new URL("https://nominatim.openstreetmap.org/search");
-      endpoint.searchParams.set("country", "United States");
-      endpoint.searchParams.set("postalcode", zipCode);
-      endpoint.searchParams.set("format", "jsonv2");
-      endpoint.searchParams.set("limit", "1");
-
-      const response = await fetch(endpoint.toString(), {
-        headers: {
-          Accept: "application/json",
-        },
-      });
-
-      if (!response.ok) return null;
-
-      const results = await response.json();
-      const match = results?.[0];
-      if (!match) return null;
-
-      return [Number(match.lat), Number(match.lon)];
-    },
-    async () => {
-      const response = await fetch(`https://api.zippopotam.us/us/${zipCode}`, {
-        headers: {
-          Accept: "application/json",
-        },
-      });
-
-      if (!response.ok) return null;
-
-      const data = await response.json();
-      const place = data?.places?.[0];
-      if (!place) return null;
-
-      return [Number(place.latitude), Number(place.longitude)];
-    },
-  ];
-
-  for (const provider of providers) {
-    try {
-      const result = await provider();
-      if (result && Number.isFinite(result[0]) && Number.isFinite(result[1])) {
-        return result;
-      }
-    } catch (error) {
-      console.warn(`ZIP geocoding provider failed for ${zipCode}`, error);
-    }
-  }
-
-  return null;
+function getHexesNearCenter(center, hexGrid) {
+  return [];
 }
 
 function generateHexGrid() {
@@ -237,6 +179,9 @@ function buildStarterHexAssignments(hexes) {
 }
 
 export default function CoverageMapPage() {
+  const workerRef = useRef(null);
+  const workerRequestIdRef = useRef(0);
+  const workerResolversRef = useRef(new Map());
   const mapNodeRef = useRef(null);
   const mapRef = useRef(null);
   const layersRef = useRef(null);
@@ -247,6 +192,7 @@ export default function CoverageMapPage() {
   const sharedPayloadRef = useRef(null);
   const sharedMapRef = useMemo(() => doc(db, ...SHARED_MAP_DOC_PATH), []);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [leadUploadOpen, setLeadUploadOpen] = useState(false);
   const [notes, setNotes] = useState(() => readLocalStorageValue(NOTES_STORAGE_KEY, ""));
   const [draftNotes, setDraftNotes] = useState(() =>
     readLocalStorageValue(NOTES_DRAFT_STORAGE_KEY, readLocalStorageValue(NOTES_STORAGE_KEY, ""))
@@ -258,6 +204,7 @@ export default function CoverageMapPage() {
     readLocalStorageValue(HEX_OVERRIDES_STORAGE_KEY, {})
   );
   const [leadHighlightHexes, setLeadHighlightHexes] = useState([]);
+  const [leadHighlightZipMap, setLeadHighlightZipMap] = useState({});
   const [leadHighlightMeta, setLeadHighlightMeta] = useState({
     zipCodes: [],
     failedZipCodes: [],
@@ -274,6 +221,7 @@ export default function CoverageMapPage() {
     () => ({ ...starterAssignments, ...hexOverrides }),
     [hexOverrides, starterAssignments]
   );
+  const leadHighlightSet = useMemo(() => new Set(leadHighlightHexes), [leadHighlightHexes]);
   const paintedHexCount = useMemo(
     () => Object.values(visibleAssignments).filter(Boolean).length,
     [visibleAssignments]
@@ -286,13 +234,48 @@ export default function CoverageMapPage() {
       hexOverrides,
       leadHighlightHexes,
       leadHighlightZipCodes: leadHighlightMeta.zipCodes,
+      leadHighlightZipMap,
     }),
-    [hexOverrides, leadHighlightHexes, leadHighlightMeta.zipCodes, notes, providerColors]
+    [
+      hexOverrides,
+      leadHighlightHexes,
+      leadHighlightMeta.zipCodes,
+      leadHighlightZipMap,
+      notes,
+      providerColors,
+    ]
   );
 
   useEffect(() => {
     sharedPayloadRef.current = sharedPayload;
   }, [sharedPayload]);
+
+  useEffect(() => {
+    const worker = new Worker(new URL("../workers/normalLeadsWorker.js", import.meta.url), {
+      type: "module",
+    });
+
+    worker.onmessage = (event) => {
+      const { id, ok, result, error } = event.data || {};
+      const resolver = workerResolversRef.current.get(id);
+      if (!resolver) return;
+      workerResolversRef.current.delete(id);
+
+      if (ok) resolver.resolve(result);
+      else resolver.reject(new Error(error || "Lead worker failed."));
+    };
+
+    workerRef.current = worker;
+
+    return () => {
+      for (const resolver of workerResolversRef.current.values()) {
+        resolver.reject(new Error("Lead worker terminated."));
+      }
+      workerResolversRef.current.clear();
+      worker.terminate();
+      workerRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     notesRef.current = notes;
@@ -339,6 +322,17 @@ export default function CoverageMapPage() {
           const nextLeadHighlightZipCodes = Array.isArray(data.leadHighlightZipCodes)
             ? data.leadHighlightZipCodes.filter((value) => typeof value === "string")
             : [];
+          const nextLeadHighlightZipMap =
+            data.leadHighlightZipMap && typeof data.leadHighlightZipMap === "object"
+              ? Object.fromEntries(
+                  Object.entries(data.leadHighlightZipMap).map(([zipCode, hexIds]) => [
+                    zipCode,
+                    Array.isArray(hexIds)
+                      ? hexIds.filter((value) => typeof value === "string")
+                      : [],
+                  ])
+                )
+              : {};
           setNotes(nextNotes);
           setDraftNotes((current) => (current === notesRef.current ? nextNotes : current));
           setProviderColors({
@@ -347,6 +341,7 @@ export default function CoverageMapPage() {
           });
           setHexOverrides(data.hexOverrides || {});
           setLeadHighlightHexes(nextLeadHighlightHexes);
+          setLeadHighlightZipMap(nextLeadHighlightZipMap);
           setLeadHighlightMeta((current) => ({
             ...current,
             zipCodes: nextLeadHighlightZipCodes,
@@ -362,6 +357,7 @@ export default function CoverageMapPage() {
             hexOverrides: data.hexOverrides || {},
             leadHighlightHexes: nextLeadHighlightHexes,
             leadHighlightZipCodes: nextLeadHighlightZipCodes,
+            leadHighlightZipMap: nextLeadHighlightZipMap,
           });
         } else {
           const initialPayload = sharedPayloadRef.current || {
@@ -370,6 +366,7 @@ export default function CoverageMapPage() {
             hexOverrides: {},
             leadHighlightHexes: [],
             leadHighlightZipCodes: [],
+            leadHighlightZipMap: {},
           };
           lastSavedPayloadRef.current = JSON.stringify(initialPayload);
           await setDoc(
@@ -451,7 +448,7 @@ export default function CoverageMapPage() {
 
     hexGrid.forEach((hex) => {
       const assignedProvider = visibleAssignments[hex.id];
-      const isLeadHighlighted = leadHighlightHexes.includes(hex.id);
+      const isLeadHighlighted = leadHighlightSet.has(hex.id);
       const fillColor = isLeadHighlighted
         ? LEAD_HIGHLIGHT_COLOR
         : assignedProvider
@@ -505,7 +502,7 @@ export default function CoverageMapPage() {
   }, [
     activePaint,
     hexGrid,
-    leadHighlightHexes,
+    leadHighlightSet,
     leafletReady,
     providerColors,
     setHexOverrides,
@@ -515,7 +512,7 @@ export default function CoverageMapPage() {
   useEffect(() => {
     if (!leafletReady || !mapRef.current || leadHighlightHexes.length === 0) return;
 
-    const highlightedPolygons = hexGrid.filter((hex) => leadHighlightHexes.includes(hex.id));
+    const highlightedPolygons = hexGrid.filter((hex) => leadHighlightSet.has(hex.id));
     if (!highlightedPolygons.length) return;
 
     const bounds = highlightedPolygons.flatMap((hex) => hex.polygon);
@@ -523,7 +520,7 @@ export default function CoverageMapPage() {
       padding: [24, 24],
       maxZoom: 10,
     });
-  }, [hexGrid, leadHighlightHexes, leafletReady]);
+  }, [hexGrid, leadHighlightHexes.length, leadHighlightSet, leafletReady]);
 
   const updateProviderColor = (provider, color) => {
     setProviderColors((current) => ({ ...current, [provider]: color }));
@@ -535,6 +532,7 @@ export default function CoverageMapPage() {
 
   const clearLeadHighlights = () => {
     setLeadHighlightHexes([]);
+    setLeadHighlightZipMap({});
     setLeadHighlightMeta({
       zipCodes: [],
       failedZipCodes: [],
@@ -542,57 +540,74 @@ export default function CoverageMapPage() {
     });
   };
 
-  const handleNormalLeadsFormatted = async (prepared) => {
-    const zipCodes = prepared?.zipCodes || [];
-    if (!zipCodes.length) {
-      setLeadHighlightHexes([]);
-      setLeadHighlightMeta({
-        zipCodes: [],
-        failedZipCodes: [],
-        loading: false,
-      });
-      return;
-    }
+  const removeHighlightedZip = (zipCode) => {
+    setLeadHighlightZipMap((current) => {
+      const next = { ...current };
+      delete next[zipCode];
 
+      const nextZipCodes = Object.keys(next).sort();
+      const nextHexes = Array.from(
+        new Set(
+          Object.values(next)
+            .flat()
+            .filter((value) => typeof value === "string")
+        )
+      );
+
+      setLeadHighlightHexes(nextHexes);
+      setLeadHighlightMeta((previous) => ({
+        ...previous,
+        zipCodes: nextZipCodes,
+        failedZipCodes: previous.failedZipCodes.filter((value) => value !== zipCode),
+        loading: false,
+      }));
+
+      return next;
+    });
+  };
+
+  const runLeadWorker = (payload, transferList = []) =>
+    new Promise((resolve, reject) => {
+      const worker = workerRef.current;
+      if (!worker) {
+        reject(new Error("Lead worker is unavailable."));
+        return;
+      }
+
+      const id = ++workerRequestIdRef.current;
+      workerResolversRef.current.set(id, { resolve, reject });
+      worker.postMessage({ id, payload }, transferList);
+    });
+
+  const handleNormalLeadsFormatted = async (file, dateStamp) => {
     setLeadHighlightMeta({
-      zipCodes,
+      zipCodes: leadHighlightMeta.zipCodes,
       failedZipCodes: [],
       loading: true,
     });
     setSharedStateError("");
 
-    const highlightedHexIds = new Set();
-    const failedZipCodes = [];
+    const fileBuffer = await file.arrayBuffer();
+    const result = await runLeadWorker(
+      {
+        fileBuffer,
+        fileName: file?.name || "",
+        dateStamp,
+        hexGrid,
+        existingZipMap: leadHighlightZipMap,
+      },
+      [fileBuffer]
+    );
 
-    for (const zipCode of zipCodes) {
-      try {
-        const center = await geocodeZipCode(zipCode);
-        if (!center) {
-          failedZipCodes.push(zipCode);
-          continue;
-        }
-
-        const nearbyHexes = hexGrid
-          .map((hex) => ({
-            id: hex.id,
-            distance: getHexDistance(center, hex.center),
-          }))
-          .sort((a, b) => a.distance - b.distance)
-          .filter((hex, index) => index < 7 || hex.distance <= HEX_RADIUS_DEGREES * 1.8);
-
-        nearbyHexes.forEach((hex) => highlightedHexIds.add(hex.id));
-      } catch (error) {
-        console.error(error);
-        failedZipCodes.push(zipCode);
-      }
-    }
-
-    setLeadHighlightHexes(Array.from(highlightedHexIds));
+    setLeadHighlightHexes(result.highlightedHexIds || []);
+    setLeadHighlightZipMap(result.mergedZipMap || {});
     setLeadHighlightMeta({
-      zipCodes,
-      failedZipCodes,
+      zipCodes: result.allZipCodes || [],
+      failedZipCodes: result.failedZipCodes || [],
       loading: false,
     });
+
+    return result;
   };
 
   const saveNotes = () => {
@@ -635,13 +650,22 @@ export default function CoverageMapPage() {
                 <p className="mt-3 text-sm font-medium text-amber-700">{sharedStateError}</p>
               ) : null}
             </div>
-            <button
-              type="button"
-              className="rounded-full border border-slate-300 bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
-              onClick={() => setNotesOpen(true)}
-            >
-              Open Notes
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="rounded-full border border-lime-300 bg-lime-500 px-4 py-2 text-sm font-semibold text-slate-950"
+                onClick={() => setLeadUploadOpen(true)}
+              >
+                Lead Upload
+              </button>
+              <button
+                type="button"
+                className="rounded-full border border-slate-300 bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+                onClick={() => setNotesOpen(true)}
+              >
+                Open Notes
+              </button>
+            </div>
           </div>
         </div>
 
@@ -743,8 +767,6 @@ export default function CoverageMapPage() {
             </div>
           </div>
         </div>
-
-        <NormalLeadsFormatter onFormatComplete={handleNormalLeadsFormatted} />
       </section>
 
       <section className="relative min-h-[720px] overflow-hidden rounded-[32px] border border-slate-200 bg-white/75 shadow-sm backdrop-blur">
@@ -850,6 +872,74 @@ export default function CoverageMapPage() {
           aria-label="Close notes sidebar"
         />
       ) : null}
+
+      <Modal open={leadUploadOpen} onClose={() => setLeadUploadOpen(false)} maxWidth="max-w-3xl">
+        <div className="space-y-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                Lead Tools
+              </p>
+              <h2 className="mt-1 text-xl font-bold text-slate-900">Lead Upload</h2>
+              <p className="mt-2 text-sm text-slate-600">
+                Upload Salesforce exports as Normal Leads and manage highlighted ZIPs.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setLeadUploadOpen(false)}
+            >
+              Close
+            </button>
+          </div>
+
+          <NormalLeadsFormatter onFormatComplete={handleNormalLeadsFormatted} />
+
+          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Highlighted ZIPs</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  These ZIPs stay highlighted across uploads until removed.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={clearLeadHighlights}
+                className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600"
+                disabled={leadHighlightMeta.zipCodes.length === 0}
+              >
+                Clear All
+              </button>
+            </div>
+
+            {leadHighlightMeta.zipCodes.length > 0 ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {leadHighlightMeta.zipCodes.map((zipCode) => (
+                  <div
+                    key={zipCode}
+                    className="flex items-center gap-2 rounded-full border border-lime-200 bg-white px-3 py-2 text-sm text-slate-800"
+                  >
+                    <span className="font-semibold">{zipCode}</span>
+                    <button
+                      type="button"
+                      className="rounded-full border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600 hover:border-rose-200 hover:text-rose-600"
+                      onClick={() => removeHighlightedZip(zipCode)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
+                No ZIPs are highlighted yet.
+              </div>
+            )}
+          </div>
+        </div>
+      </Modal>
     </main>
   );
 }
