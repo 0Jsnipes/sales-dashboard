@@ -31,3 +31,58 @@
 .spin-pop {
   animation: spin-pop 0.4s ease;
 }
+
+@keyframes gogo-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes gogo-shimmer {
+  0% {
+    transform: translateX(-120%) skewX(-12deg);
+  }
+  100% {
+    transform: translateX(320%) skewX(-12deg);
+  }
+}
+
+@keyframes gogo-burst {
+  0% {
+    transform: scale(0.94);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.06);
+    opacity: 0;
+  }
+}
+
+.gogo-dropzone {
+  isolation: isolate;
+}
+
+.gogo-upload-burst::after {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border-radius: 24px;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  animation: gogo-burst 1.2s ease-out;
+  pointer-events: none;
+}
+
+.gogo-float {
+  animation: gogo-float 1.9s ease-in-out infinite;
+}
+
+.gogo-shimmer {
+  animation: gogo-shimmer 1.3s linear infinite;
+}

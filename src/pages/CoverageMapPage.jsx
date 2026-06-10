@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { defaultProviderColors, starterAreas } from "../lib/coverageMapData.js";
 import { db } from "../lib/firebase.js";
 import { useAuthRole } from "../hooks/useAuth.js";
-import NormalLeadsFormatter from "../components/NormalLeadsFormatter.jsx";
 import Modal from "../components/Modal.jsx";
 
 const NOTES_STORAGE_KEY = "coverage-map-notes";
@@ -26,6 +25,8 @@ const providerMeta = {
   attTfiber: { label: "AT&T + T-Fiber" },
   clear: { label: "Clear" },
 };
+
+const NormalLeadsFormatter = lazy(() => import("../components/NormalLeadsFormatter.jsx"));
 
 function readLocalStorageValue(key, fallbackValue) {
   if (typeof window === "undefined") return fallbackValue;
@@ -178,13 +179,76 @@ function buildStarterHexAssignments(hexes) {
   return assignments;
 }
 
+function getHexPresentation(hexId, visibleAssignments, leadHighlightSet, providerColors) {
+  const assignedProvider = visibleAssignments[hexId];
+  const isLeadHighlighted = leadHighlightSet.has(hexId);
+  const fillColor = isLeadHighlighted
+    ? LEAD_HIGHLIGHT_COLOR
+    : assignedProvider
+      ? providerColors[assignedProvider]
+      : "#ffffff";
+  const borderColor = isLeadHighlighted
+    ? "#65a30d"
+    : assignedProvider
+      ? fillColor
+      : "#cbd5e1";
+  const tooltipText = isLeadHighlighted
+    ? "Normal leads ZIP area"
+    : assignedProvider
+      ? `${providerMeta[assignedProvider].label} hex`
+      : "Unassigned hex";
+
+  return {
+    borderColor,
+    fillColor,
+    fillOpacity: isLeadHighlighted ? 0.68 : assignedProvider ? 0.58 : 0.04,
+    weight: isLeadHighlighted ? 1.6 : assignedProvider ? 1.2 : 0.7,
+    tooltipText,
+  };
+}
+
+function buildHexRenderKey(hexId, visibleAssignments, leadHighlightSet, providerColors) {
+  const assignedProvider = visibleAssignments[hexId] || "";
+  const highlightFlag = leadHighlightSet.has(hexId) ? "1" : "0";
+  const providerColor = assignedProvider ? providerColors[assignedProvider] || "" : "";
+
+  return `${highlightFlag}|${assignedProvider}|${providerColor}`;
+}
+
+function applyHexPresentation(layer, hexId, visibleAssignments, leadHighlightSet, providerColors) {
+  const { borderColor, fillColor, fillOpacity, weight, tooltipText } = getHexPresentation(
+    hexId,
+    visibleAssignments,
+    leadHighlightSet,
+    providerColors
+  );
+
+  layer.setStyle({
+    color: borderColor,
+    fillColor,
+    fillOpacity,
+    weight,
+  });
+
+  const tooltip = layer.getTooltip();
+  if (tooltip) {
+    tooltip.setContent(tooltipText);
+  } else {
+    layer.bindTooltip(tooltipText, { sticky: true });
+  }
+}
+
 export default function CoverageMapPage() {
   const workerRef = useRef(null);
   const workerRequestIdRef = useRef(0);
   const workerResolversRef = useRef(new Map());
   const mapNodeRef = useRef(null);
   const mapRef = useRef(null);
+  const rendererRef = useRef(null);
   const layersRef = useRef(null);
+  const layerByHexIdRef = useRef(new Map());
+  const hexRenderKeysRef = useRef(new Map());
+  const activePaintRef = useRef("att");
   const hasFitBoundsRef = useRef(false);
   const hasLoadedSharedStateRef = useRef(false);
   const lastSavedPayloadRef = useRef("");
@@ -249,6 +313,10 @@ export default function CoverageMapPage() {
   useEffect(() => {
     sharedPayloadRef.current = sharedPayload;
   }, [sharedPayload]);
+
+  useEffect(() => {
+    activePaintRef.current = activePaint;
+  }, [activePaint]);
 
   useEffect(() => {
     const worker = new Worker(new URL("../workers/normalLeadsWorker.js", import.meta.url), {
@@ -422,6 +490,7 @@ export default function CoverageMapPage() {
     if (!leafletReady || !mapNodeRef.current || mapRef.current) return undefined;
 
     const map = window.L.map(mapNodeRef.current, {
+      preferCanvas: true,
       zoomControl: true,
       minZoom: 3,
     }).setView([37.8, -96], 4);
@@ -430,64 +499,57 @@ export default function CoverageMapPage() {
       attribution: "&copy; OpenStreetMap contributors",
     }).addTo(map);
 
+    rendererRef.current = window.L.canvas({ padding: 0.5 });
     layersRef.current = window.L.layerGroup().addTo(map);
     mapRef.current = map;
 
     return () => {
       map.remove();
       mapRef.current = null;
+      rendererRef.current = null;
       layersRef.current = null;
+      layerByHexIdRef.current = new Map();
+      hexRenderKeysRef.current = new Map();
       hasFitBoundsRef.current = false;
     };
   }, [leafletReady]);
 
   useEffect(() => {
     if (!leafletReady || !mapRef.current || !layersRef.current) return;
+    if (layerByHexIdRef.current.size > 0) return;
 
-    layersRef.current.clearLayers();
+    const nextLayerMap = new Map();
+    const nextRenderKeys = new Map();
 
     hexGrid.forEach((hex) => {
-      const assignedProvider = visibleAssignments[hex.id];
-      const isLeadHighlighted = leadHighlightSet.has(hex.id);
-      const fillColor = isLeadHighlighted
-        ? LEAD_HIGHLIGHT_COLOR
-        : assignedProvider
-        ? providerColors[assignedProvider]
-        : "#ffffff";
-
       const layer = window.L.polygon(hex.polygon, {
-        color: isLeadHighlighted
-          ? "#65a30d"
-          : assignedProvider
-          ? fillColor
-          : "#cbd5e1",
-        fillColor,
-        fillOpacity: isLeadHighlighted ? 0.68 : assignedProvider ? 0.58 : 0.04,
-        weight: isLeadHighlighted ? 1.6 : assignedProvider ? 1.2 : 0.7,
+        renderer: rendererRef.current || undefined,
       });
 
-      layer.bindTooltip(
-        isLeadHighlighted
-          ? "Normal leads ZIP area"
-          : assignedProvider
-          ? `${providerMeta[assignedProvider].label} hex`
-          : "Unassigned hex",
-        { sticky: true }
+      applyHexPresentation(layer, hex.id, visibleAssignments, leadHighlightSet, providerColors);
+      nextRenderKeys.set(
+        hex.id,
+        buildHexRenderKey(hex.id, visibleAssignments, leadHighlightSet, providerColors)
       );
 
       layer.on("click", () => {
         setHexOverrides((current) => {
           const next = { ...current };
+          const nextPaint = activePaintRef.current;
 
-          if (activePaint === "clear") next[hex.id] = null;
-          else next[hex.id] = activePaint;
+          if (nextPaint === "clear") next[hex.id] = null;
+          else next[hex.id] = nextPaint;
 
           return next;
         });
       });
 
       layer.addTo(layersRef.current);
+      nextLayerMap.set(hex.id, layer);
     });
+
+    layerByHexIdRef.current = nextLayerMap;
+    hexRenderKeysRef.current = nextRenderKeys;
 
     if (!hasFitBoundsRef.current) {
       mapRef.current.fitBounds(
@@ -499,8 +561,32 @@ export default function CoverageMapPage() {
       );
       hasFitBoundsRef.current = true;
     }
+  }, [hexGrid, leadHighlightSet, leafletReady, providerColors, visibleAssignments]);
+
+  useEffect(() => {
+    if (!leafletReady || layerByHexIdRef.current.size === 0) return;
+
+    const nextRenderKeys = new Map();
+
+    hexGrid.forEach((hex) => {
+      const nextRenderKey = buildHexRenderKey(
+        hex.id,
+        visibleAssignments,
+        leadHighlightSet,
+        providerColors
+      );
+      nextRenderKeys.set(hex.id, nextRenderKey);
+
+      if (hexRenderKeysRef.current.get(hex.id) === nextRenderKey) return;
+
+      const layer = layerByHexIdRef.current.get(hex.id);
+      if (layer) {
+        applyHexPresentation(layer, hex.id, visibleAssignments, leadHighlightSet, providerColors);
+      }
+    });
+
+    hexRenderKeysRef.current = nextRenderKeys;
   }, [
-    activePaint,
     hexGrid,
     leadHighlightSet,
     leafletReady,
@@ -894,7 +980,15 @@ export default function CoverageMapPage() {
             </button>
           </div>
 
-          <NormalLeadsFormatter onFormatComplete={handleNormalLeadsFormatted} />
+          <Suspense
+            fallback={
+              <div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-600">
+                Loading lead formatter...
+              </div>
+            }
+          >
+            <NormalLeadsFormatter onFormatComplete={handleNormalLeadsFormatted} />
+          </Suspense>
 
           <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
             <div className="flex items-center justify-between gap-3">

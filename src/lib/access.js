@@ -8,6 +8,8 @@ export const performanceAllowlist = new Set(
   ].map(normalizeEmail)
 );
 
+export const gogoFormatterAllowlist = new Set(["snipes1995@gmail.com"].map(normalizeEmail));
+
 export const rosterViewAllowlist = new Set(
   [
     "snipes1995@gmail.com",

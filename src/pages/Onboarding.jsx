@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuthRole } from "../hooks/useAuth";
+import GoGoFormatterLauncher from "../components/GoGoFormatterLauncher.jsx";
+import { gogoFormatterAllowlist, isEmailAllowed } from "../lib/access.js";
 
 const sections = [
   {
@@ -187,8 +189,9 @@ const normalizeProgram = (program) => {
 const SHOW_EMAIL_COLUMN = false; // Toggle back to true to restore the email/send column
 
 export default function OnboardingPage() {
-  const { isAdmin, permissions, loading: authLoading } = useAuthRole();
+  const { user, isAdmin, permissions, loading: authLoading } = useAuthRole();
   const canEditOnboarding = isAdmin && permissions.canEditOnboarding;
+  const canUseGoGoFormatter = isEmailAllowed(gogoFormatterAllowlist, user?.email);
   const [roster, setRoster] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState(emailTemplates[0].key);
@@ -369,13 +372,18 @@ export default function OnboardingPage() {
   return (
     <div className="p-4 lg:p-6">
       <div className="mx-auto max-w-7xl space-y-6 rounded-3xl bg-white/60 p-6 shadow-lg backdrop-blur">
-        <header className="flex flex-col gap-2">
-          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
-            Onboarding Hub
-          </h1>
-          <p className="text-sm text-slate-600">
-            Quick links to program resources. Click a button to open the corresponding page (links to be added).
-          </p>
+        <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
+              Onboarding Hub
+            </h1>
+            <p className="text-sm text-slate-600">
+              Quick links to program resources. Click a button to open the corresponding page
+              (links to be added).
+            </p>
+          </div>
+
+          {canUseGoGoFormatter ? <GoGoFormatterLauncher /> : null}
         </header>
 
         <div className="grid gap-6 md:grid-cols-2">
