@@ -1,10 +1,13 @@
+import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
+import pdfWorkerSrc from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
+
 const NAME_ROW_Y = 507;
 const EMAIL_ROW_Y = 317;
 const PHONE_ROW_Y = 366;
 const SOCIAL_ROW_Y = 365;
 const ROW_TOLERANCE = 12;
 
-let pdfjsPromise = null;
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
 const withinRange = (value, target, tolerance = ROW_TOLERANCE) =>
   Math.abs(value - target) <= tolerance;
@@ -71,25 +74,11 @@ const fallbackNameFromText = (text) => {
   return compactSpaces(codeOfConductName?.[1] || "");
 };
 
-const ensurePdfjs = async () => {
-  if (!pdfjsPromise) {
-    pdfjsPromise = import("pdfjs-dist/legacy/build/pdf.mjs").then((pdfjs) => {
-      pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-        "pdfjs-dist/build/pdf.worker.mjs",
-        import.meta.url
-      ).toString();
-      return pdfjs;
-    });
-  }
-  return pdfjsPromise;
-};
-
 export async function extractRosterFieldsFromPdf(file) {
   if (!file) {
     throw new Error("No PDF file provided.");
   }
 
-  const pdfjs = await ensurePdfjs();
   const buffer = await file.arrayBuffer();
   const loadingTask = pdfjs.getDocument({ data: buffer });
   const pdf = await loadingTask.promise;

@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PageHero, PageShell } from "../components/PageLayout.jsx";
+import MobileManagerAccordion from "../components/MobileManagerAccordion.jsx";
 import TeamFilter from "../components/TeamFilter.jsx";
 import WeekSwitcher from "../components/WeekSwitcher.jsx";
-import WeeklyManagerAccordion from "../components/WeeklyManagerAccordion.jsx";
+import WeeklyChart from "../components/WeeklyChart.jsx";
 import WeeklyTable from "../components/WeeklyTable.jsx";
 import { useAuthRole } from "../hooks/useAuth";
 import { startOfWeek, toISO } from "../utils/weeks.js";
@@ -64,12 +65,25 @@ export default function SalesPage() {
         />
       </div>
 
-      <WeeklyManagerAccordion
-        base="weeks"
-        weekISO={weekISO}
-        teamFilter={location}
-        managerFilter={manager}
-      />
+      <div className="md:hidden">
+        <MobileManagerAccordion
+          base="weeks"
+          weekISO={weekISO}
+          teamFilter={location}
+          managerFilter={manager}
+        />
+      </div>
+
+      <div className="hidden md:block">
+        <WeeklyChart
+          base="weeks"
+          weekISO={weekISO}
+          metricKey="sales"
+          title="Weekly Sales"
+          teamFilter={location}
+          managerFilter={manager}
+        />
+      </div>
       <WeeklyTable
         base="weeks"
         weekISO={weekISO}

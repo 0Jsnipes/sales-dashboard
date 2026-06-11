@@ -8,7 +8,6 @@ import {
   updateDoc,
   serverTimestamp,
   getDocs,
-  collectionGroup,
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { normalizeEmail } from "../lib/access";
@@ -228,21 +227,29 @@ export default function RosterPage({
     const fetchTotals = async () => {
       setLoadingSalesTotals(true);
       try {
-        const snap = await getDocs(collectionGroup(db, "reps"));
         const totals = {};
-        snap.forEach((d) => {
-          const data = d.data() || {};
-          const key =
-            (data.salesId || data.sid || "").trim() ||
-            (data.name || "").trim().toLowerCase();
-          if (!key) return;
-          const salesArr = Array.isArray(data.sales) ? data.sales : [];
-          const totalSales = salesArr.reduce(
-            (sum, v) => sum + (Number.isFinite(+v) ? +v : 0),
-            0
+        const weeksSnap = await getDocs(collection(db, "weeks"));
+
+        for (const weekDoc of weeksSnap.docs) {
+          const repsSnap = await getDocs(
+            collection(db, "weeks", weekDoc.id, "reps")
           );
-          totals[key] = (totals[key] || 0) + totalSales;
-        });
+
+          repsSnap.forEach((repDoc) => {
+            const data = repDoc.data() || {};
+            const key =
+              (data.salesId || data.sid || "").trim() ||
+              (data.name || "").trim().toLowerCase();
+            if (!key) return;
+            const salesArr = Array.isArray(data.sales) ? data.sales : [];
+            const totalSales = salesArr.reduce(
+              (sum, v) => sum + (Number.isFinite(+v) ? +v : 0),
+              0
+            );
+            totals[key] = (totals[key] || 0) + totalSales;
+          });
+        }
+
         if (!cancelled) setSalesTotals(totals);
       } catch (err) {
         console.error("Failed to load lifetime sales totals", err);

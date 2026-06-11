@@ -414,6 +414,8 @@ export default function OnboardingPage() {
                   <a
                     key={btn.label}
                     href={btn.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className={`btn mx-auto h-12 w-64 items-center justify-center text-center rounded-full border-0 text-sm font-semibold shadow ${btn.colorClass}`}
                     role="button"
                   >
