@@ -46,9 +46,8 @@ export default function SalesPage() {
   return (
     <PageShell>
       <PageHero
-        eyebrow="Sales View"
-        title="Weekly sales, without the dashboard clutter."
-        description="Track rep momentum, narrow the week by location or manager, and keep the numbers legible on desktop and mobile."
+        title="Sales"
+        description="Weekly sales by rep, manager, and location."
         stats={[
           { label: "Week", value: weekISO },
           { label: "Location", value: location },

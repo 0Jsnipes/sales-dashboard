@@ -495,9 +495,8 @@ export default function SettingsPage() {
     return (
       <PageShell>
         <PageHero
-          eyebrow="Profile"
-          title="Manage your account details."
-          description="You can update your name and phone number here. All other settings stay locked to your assigned role."
+          title="Settings"
+          description="Your account details."
           stats={[
             { label: "Role", value: isManager ? "Manager" : "User" },
             { label: "Name", value: profile?.repName || "Not set" },
@@ -508,9 +507,8 @@ export default function SettingsPage() {
 
         <section className="glass-panel p-5">
           <SectionIntro
-            eyebrow="My Profile"
-            title="Update your contact information."
-            description="Only your name and phone number are editable in this view."
+            title="Profile"
+            description="Update your name and phone number."
             actions={
               <button
                 className="btn btn-outline"
@@ -603,9 +601,8 @@ export default function SettingsPage() {
   return (
     <PageShell>
       <PageHero
-        eyebrow="Admin Controls"
-        title="Manage users, teams, and current reps."
-        description="Create Firebase users, assign them to the right team and location, and maintain the current-week rep list that powers the sales dashboard."
+        title="Settings"
+        description="Users, permissions, and current reps."
         stats={[
           { label: "Users", value: users.length || 0 },
           { label: "Current Reps", value: reps.length || 0 },
@@ -615,9 +612,8 @@ export default function SettingsPage() {
 
       <section className="glass-panel p-5">
         <SectionIntro
-          eyebrow="User Access"
-          title="Assign users to teams and current reps."
-          description="Team maps to the rep manager, while location stays separate. Keep the user profiles tied to the same current-week rep data the dashboard already uses."
+          title="Users"
+          description="Manage login access, roles, teams, and linked reps."
           actions={
             <div className="flex gap-2">
               <button className="btn btn-outline" type="button" onClick={() => setUserPanelOpen((value) => !value)}>
@@ -746,9 +742,8 @@ export default function SettingsPage() {
 
       <section className="glass-panel p-5">
         <SectionIntro
-          eyebrow="Current Reps"
-          title="Create and edit the reps shown on the sales dashboard."
-          description="Current reps still keep their manager and location fields. Team assignment for users now comes from the rep manager."
+          title="Current Reps"
+          description="Manage the reps shown in the weekly dashboards."
           actions={
             <div className="flex gap-2">
               <button className="btn btn-outline" type="button" onClick={() => setRepPanelOpen((value) => !value)}>

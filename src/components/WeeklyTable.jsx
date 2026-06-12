@@ -1300,9 +1300,12 @@ export default function WeeklyTable({
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 flex-1">
           <SectionIntro
-            eyebrow="Grid"
             title={title}
-            description="Daily inputs, totals, goals, and progress for each rep in one place. Mobile keeps a compact weekly summary while desktop shows the full spreadsheet."
+            description={
+              metricKey === "sales"
+                ? "Daily sales totals for the selected week."
+                : "Daily knock totals for the selected week."
+            }
           />
           {mobileSummaryCard}
         </div>

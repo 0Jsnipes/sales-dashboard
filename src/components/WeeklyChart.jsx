@@ -207,9 +207,8 @@ export default function WeeklyChart({
   return (
     <section className="glass-panel p-5">
       <SectionIntro
-        eyebrow="Chart"
         title={title}
-        description="A weekly roll-up by rep. Phones show simple weekly totals, while larger screens keep a cleaner bar chart without forcing horizontal scroll."
+        description="Weekly totals by rep."
       />
 
       {rows === null ? (

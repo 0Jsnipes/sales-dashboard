@@ -6,6 +6,7 @@ import { db } from "../lib/firebase";
 import { startOfWeek, toISO } from "../utils/weeks.js";
 
 export default function Navbar({
+  theme,
   isAdmin,
   isPrimarySuperAdmin,
   actualIsPrimarySuperAdmin,
@@ -21,6 +22,7 @@ export default function Navbar({
   onClearViewPreview,
   onLogout,
   onOpenLogin,
+  onToggleTheme,
 }) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -136,7 +138,7 @@ export default function Navbar({
       ? viewPreview?.team || "Manager"
       : previewMode === "user"
         ? viewPreview?.repName || "User"
-        : "Live Admin";
+        : "Admin";
 
   return (
     <header className="sticky top-0 z-50 px-4 pt-4 sm:px-6">
@@ -148,8 +150,8 @@ export default function Navbar({
             : "shadow-[0_16px_40px_rgba(9,20,35,0.08)]"
         )}
       >
-        <div className="flex items-center gap-3 px-3 py-3 sm:px-4">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3 px-3 py-3 sm:px-4">
+          <div className="flex min-w-0 items-center gap-3">
             <Link to="/" className="flex min-w-0 items-center gap-3">
               <div className="rounded-[22px] border border-slate-200 bg-white p-2 shadow-lg shadow-slate-950/10">
                 <img src="/ab-logo.png" className="h-8 w-8 object-contain" alt="AB" />
@@ -157,7 +159,7 @@ export default function Navbar({
             </Link>
           </div>
 
-          <nav className="hidden lg:flex items-center justify-center gap-2">
+          <nav className="hidden justify-self-center lg:flex items-center justify-center gap-2">
             {showNav ? (
               <>
                 <NavButton to="/sales">Sales</NavButton>
@@ -180,7 +182,7 @@ export default function Navbar({
             )}
           </nav>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center justify-self-end gap-2">
             {actualIsPrimarySuperAdmin ? (
               <div ref={previewDesktopRef} className="relative hidden lg:block">
                 <button
@@ -189,17 +191,11 @@ export default function Navbar({
                   onClick={() => setPreviewDesktopOpen((current) => !current)}
                   aria-expanded={previewDesktopOpen}
                 >
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    Preview
-                  </span>
                   <span className="max-w-[10rem] truncate text-slate-900">{previewSummaryLabel}</span>
                 </button>
                 {previewDesktopOpen ? (
                   <div className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-80 rounded-[24px] border border-slate-200/80 bg-white/95 p-4 shadow-[0_24px_56px_rgba(9,20,35,0.18)] backdrop-blur-xl">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      View Preview
-                    </p>
-                    <div className="mt-3 grid gap-3">
+                    <div className="grid gap-3">
                       <select
                         className="select select-bordered select-sm w-full"
                         value={previewMode}
@@ -247,6 +243,15 @@ export default function Navbar({
                 ) : null}
               </div>
             ) : null}
+
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              onClick={onToggleTheme}
+              title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            >
+              {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+            </button>
 
             {isDemo && !isAdmin ? (
               <span className="badge hidden sm:inline-flex border-lime-200 bg-lime-100/80 text-slate-900">
@@ -309,10 +314,7 @@ export default function Navbar({
             <div className="grid gap-2 px-3 py-3 sm:grid-cols-2 sm:px-4">
               {actualIsPrimarySuperAdmin ? (
                 <div className="sm:col-span-2 rounded-[20px] border border-slate-200/80 bg-slate-50/90 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    View Preview
-                  </p>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <div className="grid gap-2 sm:grid-cols-2">
                     <select
                       className="select select-bordered select-sm w-full"
                       value={previewMode}
@@ -431,5 +433,47 @@ function DisabledButton({ children }) {
     >
       {children}
     </button>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      fill="none"
+      className="h-4 w-4"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M15.5 11.5A6.5 6.5 0 0 1 8.5 4.5a6.5 6.5 0 1 0 7 7Z" />
+    </svg>
+  );
+}
+
+function SunIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      fill="none"
+      className="h-4 w-4"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="10" cy="10" r="3.25" />
+      <path d="M10 2.5v2" />
+      <path d="M10 15.5v2" />
+      <path d="M2.5 10h2" />
+      <path d="M15.5 10h2" />
+      <path d="m4.7 4.7 1.4 1.4" />
+      <path d="m13.9 13.9 1.4 1.4" />
+      <path d="m13.9 6.1 1.4-1.4" />
+      <path d="m4.7 15.3 1.4-1.4" />
+    </svg>
   );
 }

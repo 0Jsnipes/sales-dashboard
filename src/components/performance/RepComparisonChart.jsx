@@ -72,9 +72,8 @@ export default function RepComparisonChart({ data, colors }) {
   return (
     <section className="glass-panel p-5">
       <SectionIntro
-        eyebrow="Comparison"
         title="Rep Comparison"
-        description="Compare knocks, sales, and days active side by side. Hover a bar to see the rep name."
+        description="Knocks, sales, and days active by rep."
       />
 
       <div className="mt-5 h-[clamp(300px,48vh,420px)] w-full">

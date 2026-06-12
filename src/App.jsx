@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { signOut } from "firebase/auth";
 import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
 import { auth } from "./lib/firebase";
@@ -19,6 +19,13 @@ import SettingsPage from "./pages/SettingsPage.jsx";
 import { buildAccessScope } from "./lib/accessScope.js";
 
 const CoverageMapPage = lazy(() => import("./pages/CoverageMapPage.jsx"));
+const THEME_STORAGE_KEY = "ab-theme";
+
+function getStoredTheme() {
+  if (typeof window === "undefined") return "light";
+  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  return stored === "dark" ? "dark" : "light";
+}
 
 export default function App() {
   const authState = useAuthRole();
@@ -42,6 +49,7 @@ export default function App() {
   } = authState;
   const scope = buildAccessScope(authState);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [theme, setTheme] = useState(getStoredTheme);
   const { canViewRoster: actualCanViewRoster, loading: rosterAccessLoading } = useRosterAccess(
     user?.email,
     actualIsAdmin
@@ -52,6 +60,16 @@ export default function App() {
   const appLoading = loading || rosterAccessLoading;
   const isAuthenticated = !!user || isDemo;
   const showNav = isAuthenticated;
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.theme = theme;
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((current) => (current === "dark" ? "light" : "dark"));
+  };
 
   const requireAuth = (element) => {
     if (appLoading) {
@@ -73,6 +91,7 @@ export default function App() {
         <InstallAppBanner />
         {showNav && (
           <Navbar
+            theme={theme}
             isAdmin={isAdmin}
             isSuperAdmin={isSuperAdmin}
             isPrimarySuperAdmin={isPrimarySuperAdmin}
@@ -89,6 +108,7 @@ export default function App() {
             onClearViewPreview={clearViewPreview}
             onLogout={() => signOut(auth)}
             onOpenLogin={() => setLoginOpen(true)}
+            onToggleTheme={toggleTheme}
           />
         )}
         {!showNav && !appLoading && (
@@ -102,9 +122,14 @@ export default function App() {
                   Sales Dashboard
                 </span>
               </Link>
-              <button className="btn btn-primary btn-sm" onClick={() => setLoginOpen(true)}>
-                Sign In
-              </button>
+              <div className="flex items-center gap-2">
+                <button className="btn btn-outline btn-sm" onClick={toggleTheme} type="button">
+                  {theme === "dark" ? "Light" : "Dark"}
+                </button>
+                <button className="btn btn-primary btn-sm" onClick={() => setLoginOpen(true)}>
+                  Sign In
+                </button>
+              </div>
             </div>
           </div>
         )}

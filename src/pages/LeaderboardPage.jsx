@@ -154,9 +154,8 @@ export default function LeaderboardPage() {
   return (
     <PageShell>
       <PageHero
-        eyebrow="Leaderboard"
-        title="See who is carrying the week."
-        description="A cleaner ranking view for weekly sales momentum, with the same filters as the rest of the dashboard and a layout that still works on a phone."
+        title="Leaderboard"
+        description="Weekly sales ranking for the current filters."
         stats={[
           { label: "Week", value: weekISO },
           { label: "Reps", value: ranked.length || 0 },

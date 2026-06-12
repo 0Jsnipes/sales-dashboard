@@ -433,9 +433,8 @@ export default function OnboardingPage() {
   return (
     <PageShell>
       <PageHero
-        eyebrow="Onboarding"
-        title="Everything new reps need in one cleaner hub."
-        description="Program links, onboarding progress, notes, and task completion all live here now with the same visual system as the rest of the dashboard."
+        title="Onboarding"
+        description="Rep onboarding status, notes, and program links."
         actions={canUseGoGoFormatter ? <GoGoFormatterLauncher /> : null}
         stats={[
           { label: "Open Reps", value: totalRows || 0 },

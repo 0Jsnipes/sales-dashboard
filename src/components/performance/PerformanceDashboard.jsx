@@ -48,9 +48,9 @@ const DATE_RANGE_STORAGE_KEY = "ab-performance-date-range";
 const VALID_DATE_RANGES = new Set(["7d", "30d", "90d", "all"]);
 
 const getStoredDateRange = () => {
-  if (typeof window === "undefined") return "30d";
+  if (typeof window === "undefined") return "7d";
   const stored = window.localStorage.getItem(DATE_RANGE_STORAGE_KEY);
-  return VALID_DATE_RANGES.has(stored) ? stored : "30d";
+  return VALID_DATE_RANGES.has(stored) ? stored : "7d";
 };
 
 export default function PerformanceDashboard() {
@@ -183,9 +183,8 @@ export default function PerformanceDashboard() {
   return (
     <div className="page-stack">
       <PageHero
-        eyebrow="Performance"
-        title="Sales performance from DB uploads."
-        description="Track ATT and T-Fiber order quality from the uploaded DB records, with rep-level drilldowns and customer details."
+        title="Performance"
+        description="Sales, status, and install metrics from uploaded orders."
         stats={[
           { label: "Range", value: dateRange.toUpperCase() },
           { label: "Reps", value: dashboardData.reps.length || 0 },
@@ -196,9 +195,8 @@ export default function PerformanceDashboard() {
 
       <section className="toolbar-card">
         <SectionIntro
-          eyebrow="Filters"
-          title="Sales Controls"
-          description="Focus the DB performance view by rep and upload date range."
+          title="Controls"
+          description="Filter by rep and date range."
         />
 
         <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
@@ -327,9 +325,8 @@ function StatusGauges({ metrics }) {
   return (
     <section className="glass-panel p-5">
       <SectionIntro
-        eyebrow="Quality"
         title="Status Gauges"
-        description="Cancellation, churn, and active install performance for the current scope."
+        description="Cancellation, churn, and active install rates."
       />
 
       <div className="mt-5 grid gap-4 md:grid-cols-3">
@@ -387,9 +384,8 @@ function InstallStatusChart({ metrics }) {
   return (
     <section className="glass-panel p-5">
       <SectionIntro
-        eyebrow="Install Pipeline"
         title="Installed vs Pending"
-        description="Compare active installs against orders still waiting to install for the current scope."
+        description="Install status for the current selection."
       />
 
       <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-center">
@@ -453,9 +449,8 @@ function OrdersTable({
   return (
     <section className="glass-panel p-5">
       <SectionIntro
-        eyebrow="Orders"
-        title={selectedRepName ? `${selectedRepName} Sales` : "Sales Orders"}
-        description="Click a customer row to inspect contact and address details from the uploaded DB record."
+        title={selectedRepName ? selectedRepName : "Orders"}
+        description="Orders for the selected rep."
       />
 
       <div className="data-table-shell mt-5">
@@ -609,10 +604,7 @@ function AllSalesBox({ orders, onSelectOrder }) {
     <section className="glass-panel p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Admin Review
-          </p>
-          <h2 className="mt-1 text-xl font-semibold text-slate-950">All Sales</h2>
+          <h2 className="text-xl font-semibold text-slate-950">All Sales</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {open ? (

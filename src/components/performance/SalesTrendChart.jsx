@@ -35,9 +35,8 @@ export default function SalesTrendChart({ data, selectedRep, colors }) {
   return (
     <section className="glass-panel p-5">
       <SectionIntro
-        eyebrow="Trends"
-        title="Knocks and Sales Trend"
-        description="Follow daily movement over time without switching to a separate analytics screen."
+        title="Trend"
+        description="Daily knocks and sales over time."
       />
 
       <div className="mt-5 h-80">

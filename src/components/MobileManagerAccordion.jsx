@@ -43,6 +43,8 @@ function ChevronIcon({ open = false }) {
 export default function MobileManagerAccordion({
   base = "weeks",
   weekISO,
+  metricKey = "sales",
+  goalKey = "salesGoal",
   teamFilter = "All",
   managerFilter = "All",
   repNameFilter = "",
@@ -55,8 +57,12 @@ export default function MobileManagerAccordion({
 
   const rows = useMemo(
     () =>
-      rawRows ? buildWeeklySalesRows(rawRows, salesUploadOrders, weekISO) : null,
-    [rawRows, salesUploadOrders, weekISO]
+      !rawRows
+        ? null
+        : metricKey === "sales"
+          ? buildWeeklySalesRows(rawRows, salesUploadOrders, weekISO)
+          : rawRows,
+    [metricKey, rawRows, salesUploadOrders, weekISO]
   );
 
   useEffect(() => {
@@ -78,18 +84,18 @@ export default function MobileManagerAccordion({
         .filter((row) => !row.deleted && matchesFilters(row))
         .map((row) => ({
           ...row,
-          sales:
-            Array.isArray(row.sales) && row.sales.length === 7
-              ? row.sales
+          [metricKey]:
+            Array.isArray(row[metricKey]) && row[metricKey].length === 7
+              ? row[metricKey]
               : Array(7).fill(0),
-          salesGoal: clampNum(row.salesGoal),
+          [goalKey]: clampNum(row[goalKey]),
         }));
 
       const deduped = new Map();
       demoRows.forEach((row) => {
         const key = keyForRep(row) || row.id;
         if (!key) return;
-        const values = Array.isArray(row.sales) ? row.sales : Array(7).fill(0);
+        const values = Array.isArray(row[metricKey]) ? row[metricKey] : Array(7).fill(0);
         const total = values.reduce((sum, value) => sum + clampNum(value), 0);
         const existing = deduped.get(key);
         if (!existing || total > existing.total) {
@@ -118,18 +124,18 @@ export default function MobileManagerAccordion({
         .filter((row) => !row.deleted && matchesFilters(row))
         .map((row) => ({
           ...row,
-          sales:
-            Array.isArray(row.sales) && row.sales.length === 7
-              ? row.sales
+          [metricKey]:
+            Array.isArray(row[metricKey]) && row[metricKey].length === 7
+              ? row[metricKey]
               : Array(7).fill(0),
-          salesGoal: clampNum(row.salesGoal),
+          [goalKey]: clampNum(row[goalKey]),
         }));
 
       const deduped = new Map();
       rawRows.forEach((row) => {
         const key = keyForRep(row) || row.id;
         if (!key) return;
-        const values = Array.isArray(row.sales) ? row.sales : Array(7).fill(0);
+        const values = Array.isArray(row[metricKey]) ? row[metricKey] : Array(7).fill(0);
         const total = values.reduce((sum, value) => sum + clampNum(value), 0);
         const existing = deduped.get(key);
         if (!existing || total > existing.total) {
@@ -150,10 +156,10 @@ export default function MobileManagerAccordion({
       cancelled = true;
       unsubscribe();
     };
-  }, [base, isDemo, managerFilter, repNameFilter, teamFilter, weekISO]);
+  }, [base, goalKey, isDemo, managerFilter, metricKey, repNameFilter, teamFilter, weekISO]);
 
   useEffect(() => {
-    if (isDemo) {
+    if (isDemo || metricKey !== "sales") {
       setSalesUploadOrders([]);
       return undefined;
     }
@@ -178,7 +184,7 @@ export default function MobileManagerAccordion({
       unsubAtt();
       unsubTFiber();
     };
-  }, [isDemo]);
+  }, [isDemo, metricKey]);
 
   const headerDates = useMemo(() => {
     const start = parseLocalISO(weekISO);
@@ -195,9 +201,9 @@ export default function MobileManagerAccordion({
     const groups = new Map();
 
     rows.forEach((row) => {
-      const values = Array.isArray(row.sales) ? row.sales : Array(7).fill(0);
+      const values = Array.isArray(row[metricKey]) ? row[metricKey] : Array(7).fill(0);
       const total = values.reduce((sum, value) => sum + clampNum(value), 0);
-      const goal = clampNum(row.salesGoal);
+      const goal = clampNum(row[goalKey]);
       const managerName = (row.manager || "").trim() || "No manager";
       const rep = {
         id: row.id,
@@ -245,7 +251,7 @@ export default function MobileManagerAccordion({
         }),
       }))
       .sort((a, b) => a.manager.localeCompare(b.manager, undefined, { sensitivity: "base" }));
-  }, [headerDates, rows]);
+  }, [goalKey, headerDates, metricKey, rows]);
 
   useEffect(() => {
     const managerNames = managerGroups.map((group) => group.manager);
@@ -278,6 +284,7 @@ export default function MobileManagerAccordion({
 
   const totalReps = managerGroups.reduce((sum, group) => sum + group.reps.length, 0);
   const totalSales = managerGroups.reduce((sum, group) => sum + group.total, 0);
+  const metricLabel = metricKey === "sales" ? "Sales" : "Knocks";
 
   const toggleManager = (managerName) => {
     setExpandedManagers((current) => ({
@@ -290,9 +297,8 @@ export default function MobileManagerAccordion({
     <>
       <section className="glass-panel p-4 sm:p-5">
         <SectionIntro
-          eyebrow="Managers"
-          title="Weekly sales by manager"
-          description="Expand a manager to inspect rep totals, then tap a rep for the day-by-day sales view."
+          title="Managers"
+          description="Expand a manager to see rep totals."
         />
 
         {rows === null ? (
@@ -308,7 +314,7 @@ export default function MobileManagerAccordion({
 
         {rows && rows.length === 0 ? (
           <div className="mt-4 flex min-h-36 items-center justify-center rounded-[24px] border border-dashed border-slate-200 bg-white/60 text-sm text-slate-500">
-            No sales data yet for this week.
+            No {metricLabel.toLowerCase()} data yet for this week.
           </div>
         ) : null}
 
@@ -333,7 +339,7 @@ export default function MobileManagerAccordion({
               </div>
               <div className="rounded-[20px] border border-slate-200/70 bg-white/74 px-3 py-3">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Sales
+                  {metricLabel}
                 </div>
                 <div className="mt-2 font-display text-xl font-bold text-slate-950">
                   {totalSales}
@@ -448,7 +454,7 @@ export default function MobileManagerAccordion({
               <div className="grid grid-cols-3 gap-3 sm:min-w-[320px]">
                 <div className="rounded-[20px] border border-slate-200/75 bg-slate-50/90 px-4 py-3">
                   <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Weekly Total
+                    Weekly {metricLabel}
                   </div>
                   <div className="mt-2 text-xl font-bold text-slate-950">{selectedRep.total}</div>
                 </div>

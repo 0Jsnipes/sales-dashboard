@@ -1212,9 +1212,8 @@ export default function RosterPage({
   return (
     <PageShell>
       <PageHero
-        eyebrow="Roster"
-        title="Rep records with less visual friction."
-        description="Manage active reps, restore terminated records, and handle onboarding context from a cleaner roster workspace."
+        title="Roster"
+        description="Active and terminated rep records."
         stats={[
           { label: "Active", value: visibleReps.length || 0 },
           { label: "Terminated", value: terminated.length || 0 },
@@ -1351,7 +1350,7 @@ export default function RosterPage({
       </div>
 
       {canEditRoster && (
-        <div className="mb-6 rounded-3xl border border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-cyan-50/50 p-5 shadow-[0_18px_50px_-24px_rgba(14,116,144,0.45)]">
+        <div className="roster-add-panel mb-6 rounded-3xl border border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-cyan-50/50 p-5 shadow-[0_18px_50px_-24px_rgba(14,116,144,0.45)]">
           <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-800">
@@ -1451,7 +1450,7 @@ export default function RosterPage({
           <div className="mt-4">
             <div className="mb-4 grid gap-3 md:grid-cols-2">
               <div
-                className={`rounded-xl border border-dashed p-3 transition ${
+                className={`roster-import-panel rounded-xl border border-dashed p-3 transition ${
                   pdfDropActive
                     ? "border-primary bg-primary/10"
                     : "border-slate-300 bg-slate-50/60"
@@ -1506,7 +1505,7 @@ export default function RosterPage({
                   </div>
                 </div>
               </div>
-              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-3">
+              <div className="roster-import-panel rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-3">
                 <div className="flex h-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-sm font-semibold text-slate-700">Bulk CSV Import</div>
@@ -1539,7 +1538,7 @@ export default function RosterPage({
             </div>
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700"
+              className="roster-option-toggle inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700"
               onClick={() => setShowOptionEditor((v) => !v)}
             >
               <svg
@@ -1561,7 +1560,7 @@ export default function RosterPage({
                 {optionTypes.map((type) => (
                   <div
                     key={type}
-                    className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-[0_12px_28px_-24px_rgba(15,23,42,0.7)]"
+                    className="roster-option-card rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-[0_12px_28px_-24px_rgba(15,23,42,0.7)]"
                   >
                     <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                       {type}
@@ -1596,7 +1595,7 @@ export default function RosterPage({
                       {options[type].map((opt) => (
                         <div
                           key={opt.id}
-                          className="flex items-center justify-between rounded-xl bg-slate-100 px-3 py-2"
+                          className="roster-option-row flex items-center justify-between rounded-xl bg-slate-100 px-3 py-2"
                         >
                           <span className="truncate">{opt.value}</span>
                           <button
@@ -1623,7 +1622,7 @@ export default function RosterPage({
       )}
 
       <div
-        className={`rounded-2xl p-4 shadow ${showTerminated ? "bg-rose-50 border border-rose-100" : "bg-base-100"}`}
+        className={`roster-table-shell rounded-2xl p-4 shadow ${showTerminated ? "bg-rose-50 border border-rose-100" : "bg-base-100"}`}
       >
         <div className="overflow-x-auto">
           <table className="table w-full">
@@ -1772,7 +1771,7 @@ export default function RosterPage({
                                 </svg>
                               </button>
                               {detailOpen === r.id && (
-                                <div className="relative rounded-lg max-width-100% border border-slate-200 bg-white p-3 text-left text-xs shadow-lg">
+                                <div className="roster-detail-popover relative rounded-lg max-width-100% border border-slate-200 bg-white p-3 text-left text-xs shadow-lg">
                                   <div className="font-semibold text-slate-800">{r.name}</div>
                                   <div className="mt-1 space-y-1 text-slate-600">
                                     <div>
@@ -1969,7 +1968,7 @@ export default function RosterPage({
       <Modal
         open={!!terminationEmailDraft.rep}
         onClose={closeTerminationEmailDraft}
-        maxWidth="max-w-lg bg-white"
+        maxWidth="max-w-lg bg-white roster-email-modal"
       >
         <h3 className="text-lg font-semibold text-slate-900">Draft Termination Email</h3>
         <p className="mt-2 text-sm text-slate-600">
@@ -1999,7 +1998,7 @@ export default function RosterPage({
               ? "Checking sales history for a suggested date..."
               : "AT&T, T-Fiber, and DIRECTV dates are always calculated from the last sale date."}
           </p>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="roster-email-timeline rounded-xl border border-slate-200 bg-slate-50 p-4">
             <h4 className="text-sm font-semibold text-slate-900">Calculated timeline</h4>
             <div className="mt-3 space-y-3 text-sm text-slate-700">
               <div>

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { LoadingPanel, PageHero, PageShell } from "../components/PageLayout.jsx";
+import MobileManagerAccordion from "../components/MobileManagerAccordion.jsx";
 import TeamFilter from "../components/TeamFilter.jsx";
 import WeekSwitcher from "../components/WeekSwitcher.jsx";
 import WeeklyChart from "../components/WeeklyChart.jsx";
@@ -45,9 +46,8 @@ export default function KnocksPage() {
   return (
     <PageShell>
       <PageHero
-        eyebrow="Activity View"
-        title="Door activity that still feels easy on the eyes."
-        description="Review weekly knocks, compare team effort across the week, and edit activity totals without forcing a desktop-only workflow."
+        title="Knocks"
+        description="Weekly door activity by rep, manager, and location."
         stats={[
           { label: "Week", value: weekISO },
           { label: "Location", value: location },
@@ -74,15 +74,29 @@ export default function KnocksPage() {
         ) : null}
       </div>
 
-      <WeeklyChart
-        base="weeks"
-        weekISO={weekISO}
-        metricKey="knocks"
-        title="Weekly Knocks"
-        teamFilter={location}
-        managerFilter={manager}
-        repNameFilter={scope.repNameFilter}
-      />
+      <div className="md:hidden">
+        <MobileManagerAccordion
+          base="weeks"
+          weekISO={weekISO}
+          metricKey="knocks"
+          goalKey="knocksGoal"
+          teamFilter={location}
+          managerFilter={manager}
+          repNameFilter={scope.repNameFilter}
+        />
+      </div>
+
+      <div className="hidden md:block">
+        <WeeklyChart
+          base="weeks"
+          weekISO={weekISO}
+          metricKey="knocks"
+          title="Weekly Knocks"
+          teamFilter={location}
+          managerFilter={manager}
+          repNameFilter={scope.repNameFilter}
+        />
+      </div>
       <WeeklyTable
         base="weeks"
         weekISO={weekISO}
