@@ -44,6 +44,7 @@ export default function MobileManagerAccordion({
   weekISO,
   teamFilter = "All",
   managerFilter = "All",
+  repNameFilter = "",
 }) {
   const isDemo = useDemoMode();
   const [rows, setRows] = useState(null);
@@ -54,13 +55,15 @@ export default function MobileManagerAccordion({
     const normalize = (value) => (value ?? "").trim();
     const teamFilterNorm = normalize(teamFilter);
     const managerFilterNorm = normalize(managerFilter);
+    const repNameFilterNorm = normalize(repNameFilter).toLowerCase();
     const matchesFilters = (row) =>
       (teamFilterNorm === "" ||
         teamFilterNorm === "All" ||
         normalize(row.team) === teamFilterNorm) &&
       (managerFilterNorm === "" ||
         managerFilterNorm === "All" ||
-        normalize(row.manager) === managerFilterNorm);
+        normalize(row.manager) === managerFilterNorm) &&
+      (repNameFilterNorm === "" || normalize(row.name).toLowerCase() === repNameFilterNorm);
 
     if (isDemo) {
       const demoRows = getDemoWeekRows(weekISO)
@@ -139,7 +142,7 @@ export default function MobileManagerAccordion({
       cancelled = true;
       unsubscribe();
     };
-  }, [base, isDemo, managerFilter, teamFilter, weekISO]);
+  }, [base, isDemo, managerFilter, repNameFilter, teamFilter, weekISO]);
 
   const headerDates = useMemo(() => {
     const start = parseLocalISO(weekISO);

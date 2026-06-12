@@ -20,6 +20,10 @@ export default function TeamFilter({
   manager,
   setManager,
   canChange = true,
+  showLocation = true,
+  showManager = true,
+  lockLocation = false,
+  lockManager = false,
 }) {
   const isDemo = useDemoMode();
   const [locations, setLocations] = useState(["All"]);
@@ -57,18 +61,19 @@ export default function TeamFilter({
   }, [weekISO, isDemo]);
 
   const handleChange = (e) => {
-    if (!canChange) return; // hard block
+    if (!canChange || lockLocation) return; // hard block
     setLocation(e.target.value);
   };
 
   const handleManagerChange = (e) => {
-    if (!canChange) return;
+    if (!canChange || lockManager) return;
     setManager(e.target.value);
   };
 
   return (
     <div className="toolbar-card toolbar-card--compact w-full">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-end">
+        {showLocation ? (
         <label className="grid gap-2">
           <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
             Location
@@ -77,7 +82,7 @@ export default function TeamFilter({
             className="select select-bordered h-12 w-full"
             value={location}
             onChange={handleChange}
-            disabled={!canChange}
+            disabled={!canChange || lockLocation}
             title={canChange ? "Change location" : "Sign in to change location"}
           >
             {locations.map((team) => (
@@ -87,7 +92,9 @@ export default function TeamFilter({
             ))}
           </select>
         </label>
+        ) : null}
 
+        {showManager ? (
         <label className="grid gap-2">
           <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
             Manager
@@ -96,7 +103,7 @@ export default function TeamFilter({
             className="select select-bordered h-12 w-full"
             value={manager}
             onChange={handleManagerChange}
-            disabled={!canChange}
+            disabled={!canChange || lockManager}
             title={canChange ? "Change manager" : "Sign in to change manager"}
           >
             {managers.map((managerName) => (
@@ -106,6 +113,7 @@ export default function TeamFilter({
             ))}
           </select>
         </label>
+        ) : null}
 
         <div className="flex items-center xl:justify-end">
           <span className="metric-chip">

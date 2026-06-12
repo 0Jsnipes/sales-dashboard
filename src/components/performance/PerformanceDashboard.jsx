@@ -6,6 +6,8 @@ import RepSelector from "./RepSelector.jsx";
 import SalesTrendChart from "./SalesTrendChart.jsx";
 import { usePerformanceData } from "./usePerformanceData.js";
 import { PageHero, SectionIntro } from "../PageLayout.jsx";
+import { useAuthRole } from "../../hooks/useAuth.js";
+import { buildAccessScope } from "../../lib/accessScope.js";
 
 const emptyData = {
   reps: [],
@@ -20,6 +22,8 @@ const emptyData = {
 };
 
 export default function PerformanceDashboard() {
+  const authState = useAuthRole();
+  const scope = buildAccessScope(authState);
   const [selectedRep, setSelectedRep] = useState(null);
   const [dateRange, setDateRange] = useState("7d");
   const [chartColors, setChartColors] = useState({
@@ -35,8 +39,18 @@ export default function PerformanceDashboard() {
     high: "#7ade8a",
   });
 
-  const { data, loading, error } = usePerformanceData(dateRange);
+  const { data, loading, error } = usePerformanceData(dateRange, scope);
   const dashboardData = data || emptyData;
+
+  useEffect(() => {
+    if (!scope.repNameFilter || dashboardData.reps.length === 0) return;
+    const matchingRep = dashboardData.reps.find(
+      (rep) => (rep.name || "").trim().toLowerCase() === scope.repNameFilter.trim().toLowerCase()
+    );
+    if (matchingRep && selectedRep !== matchingRep.id) {
+      setSelectedRep(matchingRep.id);
+    }
+  }, [dashboardData.reps, scope.repNameFilter, selectedRep]);
 
   useEffect(() => {
     if (!selectedRep) return;
@@ -74,16 +88,18 @@ export default function PerformanceDashboard() {
 
         <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
           <div className="grid gap-3 md:grid-cols-2">
-            <label className="grid gap-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                Rep Scope
-              </span>
-              <RepSelector
-                reps={dashboardData.reps}
-                selectedRep={selectedRep}
-                onSelectRep={setSelectedRep}
-              />
-            </label>
+            {!scope.hideFilters ? (
+              <label className="grid gap-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Rep Scope
+                </span>
+                <RepSelector
+                  reps={dashboardData.reps}
+                  selectedRep={selectedRep}
+                  onSelectRep={setSelectedRep}
+                />
+              </label>
+            ) : null}
 
             <label className="grid gap-2">
               <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">

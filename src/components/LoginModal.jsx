@@ -60,9 +60,9 @@ export default function LoginModal({ open, onClose }) {
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
             Secure Access
           </p>
-          <h3 className="text-2xl font-bold text-slate-950">Admin Login</h3>
+          <h3 className="text-2xl font-bold text-slate-950">Sign In</h3>
           <p className="text-sm text-slate-600">
-            Sign in with your Firebase admin credentials to manage dashboard data.
+            Sign in with your Firebase credentials to open the tools assigned to your role.
           </p>
         </div>
 

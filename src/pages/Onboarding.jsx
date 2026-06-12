@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { collection, doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { addDoc, collection, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuthRole } from "../hooks/useAuth";
 import GoGoFormatterLauncher from "../components/GoGoFormatterLauncher.jsx";
 import { PageHero, PageShell } from "../components/PageLayout.jsx";
 import { gogoFormatterAllowlist, isEmailAllowed } from "../lib/access.js";
+import { buildAccessScope } from "../lib/accessScope.js";
 
 const sections = [
   {
@@ -190,23 +191,36 @@ const normalizeProgram = (program) => {
 const SHOW_EMAIL_COLUMN = false; // Toggle back to true to restore the email/send column
 
 export default function OnboardingPage() {
-  const { user, isAdmin, permissions, loading: authLoading } = useAuthRole();
-  const canEditOnboarding = isAdmin && permissions.canEditOnboarding;
+  const authState = useAuthRole();
+  const { user, isAdmin, isManager, permissions, loading: authLoading, profile } = authState;
+  const scope = buildAccessScope(authState);
+  const canEditOnboarding = (isAdmin && permissions.canEditOnboarding) || isManager;
   const canUseGoGoFormatter = isEmailAllowed(gogoFormatterAllowlist, user?.email);
   const [roster, setRoster] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState(emailTemplates[0].key);
   const [taskModalRep, setTaskModalRep] = useState(null);
+  const [submitName, setSubmitName] = useState("");
+  const [submitEmail, setSubmitEmail] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const managerTeam = (profile?.team || "").trim();
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!scope.canViewOnboarding) return;
     const unsub = onSnapshot(collection(db, "roster"), (snap) => {
-      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((rep) => {
+          if (isManager && managerTeam) {
+            return (rep.manager || "").trim() === managerTeam;
+          }
+          return true;
+        });
       setRoster(list);
       setLoading(false);
     });
     return () => unsub();
-  }, [isAdmin]);
+  }, [isManager, managerTeam, scope.canViewOnboarding]);
 
   const grouped = useMemo(() => {
     const buckets = { att: [], tfiber: [], frontier: [], other: [] };
@@ -370,15 +384,51 @@ export default function OnboardingPage() {
     );
   }
 
-  if (!isAdmin) {
+  if (!scope.canViewOnboarding) {
     return (
       <PageShell>
         <div className="surface-panel px-5 py-8 text-sm text-slate-600">
-          Admin access required.
+          Access restricted.
         </div>
       </PageShell>
     );
   }
+
+  const submitOnboardingRequest = async (event) => {
+    event.preventDefault();
+    if (!submitName.trim() || !submitEmail.trim()) {
+      alert("Name and email are required.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await addDoc(collection(db, "roster"), {
+        name: submitName.trim(),
+        email: submitEmail.trim().toLowerCase(),
+        manager: managerTeam,
+        team: "",
+        location: "",
+        phone: "",
+        program: "",
+        onboarding: {
+          onboarded: false,
+          checks: {},
+          notes: "",
+          linkStatus: "pending_resend",
+          submittedBy: user?.email || "",
+        },
+        createdAt: serverTimestamp(),
+      });
+      setSubmitName("");
+      setSubmitEmail("");
+    } catch (err) {
+      console.error("Failed to submit onboarding request", err);
+      alert("Failed to submit onboarding request.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <PageShell>
@@ -391,11 +441,41 @@ export default function OnboardingPage() {
           { label: "Open Reps", value: totalRows || 0 },
           { label: "Programs", value: sections.length },
           { label: "Export", value: canEditOnboarding ? "Enabled" : "Locked" },
-          { label: "Status", value: loading ? "Syncing" : "Ready" },
+          { label: "Status", value: loading ? "Syncing" : isManager ? managerTeam || "Team" : "Ready" },
         ]}
       />
 
       <div className="glass-panel space-y-6 p-5">
+        {isManager ? (
+          <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm">
+            <div className="mb-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
+                Submit Onboarding
+              </h2>
+              <p className="text-xs text-slate-500">
+                Adds a rep to your team onboarding queue. The email link is marked pending for the upcoming Resend integration.
+              </p>
+            </div>
+            <form onSubmit={submitOnboardingRequest} className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+              <input
+                className="input input-bordered h-12 w-full"
+                placeholder="Rep name"
+                value={submitName}
+                onChange={(event) => setSubmitName(event.target.value)}
+              />
+              <input
+                className="input input-bordered h-12 w-full"
+                placeholder="Rep email"
+                type="email"
+                value={submitEmail}
+                onChange={(event) => setSubmitEmail(event.target.value)}
+              />
+              <button className="btn btn-primary" type="submit" disabled={submitting}>
+                {submitting ? "Submitting..." : "Submit"}
+              </button>
+            </form>
+          </div>
+        ) : null}
 
         <div className="grid gap-6 md:grid-cols-2">
           {sections.map((section) => (

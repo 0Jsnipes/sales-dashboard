@@ -14,6 +14,10 @@ function isSuperAdminEmail(email) {
   return SUPER_ADMIN_EMAILS.has((email || "").trim().toLowerCase());
 }
 
+function isPrimarySuperAdminEmail(email) {
+  return (email || "").trim().toLowerCase() === "snipes1995@gmail.com";
+}
+
 async function ensureSuperAdminProfile(user) {
   if (!user?.uid || !isSuperAdminEmail(user.email)) return;
 
@@ -27,7 +31,12 @@ async function ensureSuperAdminProfile(user) {
         canEditKnocks: true,
         canEditRoster: true,
         canEditOnboarding: true,
+        canEditReps: true,
+        canCreateUsers: true,
+        canViewPerformance: true,
         isSuperAdmin: true,
+        role: "admin",
+        roleLabel: "Admin",
         updatedAt: serverTimestamp(),
         updatedBy: user.uid,
       },
@@ -43,12 +52,18 @@ const EMPTY_PERMS = {
   canEditKnocks: false,
   canEditRoster: false,
   canEditOnboarding: false,
+  canEditReps: false,
+  canCreateUsers: false,
+  canViewPerformance: false,
 };
 const ALL_PERMS = {
   canEditSales: true,
   canEditKnocks: true,
   canEditRoster: true,
   canEditOnboarding: true,
+  canEditReps: true,
+  canCreateUsers: true,
+  canViewPerformance: true,
 };
 
 export function useAuthRole() {
@@ -57,12 +72,16 @@ export function useAuthRole() {
   const [loading, setLoading] = useState(true);
   const [permissions, setPermissions] = useState(EMPTY_PERMS);
   const [hasAdminProfile, setHasAdminProfile] = useState(false);
+  const [profileRole, setProfileRole] = useState("viewer");
+  const [profile, setProfile] = useState(null);
 
   useEffect(() => {
     if (isDemo) {
       setUser(null);
       setPermissions(EMPTY_PERMS);
       setHasAdminProfile(false);
+      setProfileRole("demo");
+      setProfile(null);
       setLoading(false);
       return undefined;
     }
@@ -78,6 +97,8 @@ export function useAuthRole() {
       setUser(u);
       setPermissions(EMPTY_PERMS);
       setHasAdminProfile(false);
+      setProfileRole("viewer");
+      setProfile(null);
 
       if (!u) {
         setLoading(false);
@@ -90,6 +111,18 @@ export function useAuthRole() {
         setLoading(true);
         setPermissions(ALL_PERMS);
         setHasAdminProfile(true);
+        setProfileRole("admin");
+        setProfile({
+          uid: u.uid,
+          email: (u.email || "").trim().toLowerCase(),
+          role: "admin",
+          roleLabel: "Admin",
+          team: "",
+          manager: "",
+          location: "",
+          repId: "",
+          repName: "",
+        });
         const bootstrap = ensureSuperAdminProfile(u);
         void bootstrap.finally(() => {
           if (isActive && auth.currentUser?.uid === u.uid) {
@@ -108,11 +141,28 @@ export function useAuthRole() {
             canEditKnocks: !!data.canEditKnocks,
             canEditRoster: !!data.canEditRoster,
             canEditOnboarding: !!data.canEditOnboarding,
+            canEditReps: !!data.canEditReps,
+            canCreateUsers: !!data.canCreateUsers,
+            canViewPerformance: !!data.canViewPerformance,
           });
           setHasAdminProfile(true);
+          setProfileRole(data.role || "user");
+          setProfile({
+            uid: u.uid,
+            email: (u.email || "").trim().toLowerCase(),
+            role: data.role || "user",
+            roleLabel: data.roleLabel || "",
+            team: data.team || "",
+            manager: data.manager || "",
+            location: data.location || "",
+            repId: data.repId || "",
+            repName: data.repName || "",
+          });
         } else {
           setPermissions(EMPTY_PERMS);
           setHasAdminProfile(false);
+          setProfileRole("viewer");
+          setProfile(null);
         }
       });
     });
@@ -125,14 +175,23 @@ export function useAuthRole() {
   }, [isDemo]);
 
   const isSuperAdmin = isSuperAdminEmail(user?.email);
+  const isPrimarySuperAdmin = isPrimarySuperAdminEmail(user?.email);
   const isAdmin = !!user && (isSuperAdmin || hasAdminProfile);
+  const isAdminRole = isSuperAdmin || profileRole === "admin";
+  const isManager = !isSuperAdmin && profileRole === "manager";
+  const isUser = !isSuperAdmin && profileRole === "user";
 
   return {
     user,
-    role: isAdmin ? "admin" : isDemo ? "demo" : "viewer",
+    role: isAdmin ? profileRole : isDemo ? "demo" : "viewer",
     isAdmin,
     isSuperAdmin,
+    isPrimarySuperAdmin,
+    isAdminRole,
+    isManager,
+    isUser,
     permissions,
+    profile,
     loading,
     isDemo,
   };

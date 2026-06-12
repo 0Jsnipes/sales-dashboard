@@ -18,9 +18,10 @@ export default function EditRepsModal({
   weekISO,
   reps = [],
 }) {
- const rep = reps[0] || null;
+  const rep = reps[0] || null;
 
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [manager, setManager] = useState("");
   const [team, setTeam] = useState("");
   const [saving, setSaving] = useState(false);
@@ -29,11 +30,13 @@ export default function EditRepsModal({
   useEffect(() => {
     if (!open || !rep) {
       setName("");
+      setEmail("");
       setManager("");
       setTeam("");
       return;
     }
     setName(rep.name || "");
+    setEmail(rep.email || "");
     setManager(rep.manager || "");
     setTeam(rep.team || "");
   }, [open, rep]);
@@ -41,6 +44,7 @@ export default function EditRepsModal({
   const hasChanges =
     !!rep &&
     (name !== (rep.name || "") ||
+      email !== (rep.email || "") ||
       manager !== (rep.manager || "") ||
       team !== (rep.team || ""));
 
@@ -57,6 +61,7 @@ export default function EditRepsModal({
         ref,
         {
           name: name.trim(),
+          email: email.trim().toLowerCase(),
           manager: manager.trim(),
           team: team.trim(),
         },
@@ -94,6 +99,16 @@ export default function EditRepsModal({
               className="input input-bordered input-sm w-full"
               value={name}
               onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-medium">Email</label>
+            <input
+              type="email"
+              className="input input-bordered input-sm w-full"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
             />
           </div>
 

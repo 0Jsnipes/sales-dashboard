@@ -7,15 +7,19 @@ import WeekSwitcher from "../components/WeekSwitcher.jsx";
 import WeeklyChart from "../components/WeeklyChart.jsx";
 import WeeklyTable from "../components/WeeklyTable.jsx";
 import { useAuthRole } from "../hooks/useAuth";
+import { buildAccessScope } from "../lib/accessScope.js";
 import { startOfWeek, toISO } from "../utils/weeks.js";
 
 export default function SalesPage() {
-  const { isAdmin, isDemo, permissions, loading } = useAuthRole();
+  const authState = useAuthRole();
+  const { isAdmin, isDemo, permissions, loading } = authState;
+  const scope = buildAccessScope(authState);
   const canEditSales = isAdmin && permissions.canEditSales;
+  const canEditReps = isAdmin && permissions.canEditReps;
   const [weekISO, setWeekISO] = useState(toISO(startOfWeek()));
   const [params, setParams] = useSearchParams();
-  const location = params.get("location") || "All";
-  const manager = params.get("manager") || "All";
+  const location = scope.locationFilter || params.get("location") || "All";
+  const manager = scope.managerFilter || params.get("manager") || "All";
 
   if (loading) {
     return (
@@ -55,14 +59,20 @@ export default function SalesPage() {
 
       <div className="grid gap-4">
         <WeekSwitcher weekISO={weekISO} setWeekISO={setWeekISO} />
-        <TeamFilter
-          weekISO={weekISO}
-          location={location}
-          setLocation={setLocation}
-          manager={manager}
-          setManager={setManager}
-          canChange={isAdmin || isDemo}
-        />
+        {!scope.hideFilters ? (
+          <TeamFilter
+            weekISO={weekISO}
+            location={location}
+            setLocation={setLocation}
+            manager={manager}
+            setManager={setManager}
+            canChange={isAdmin || isDemo}
+            showLocation={true}
+            showManager={!scope.lockManagerFilter || !!scope.managerFilter}
+            lockLocation={scope.lockLocationFilter}
+            lockManager={scope.lockManagerFilter}
+          />
+        ) : null}
       </div>
 
       <div className="md:hidden">
@@ -71,6 +81,7 @@ export default function SalesPage() {
           weekISO={weekISO}
           teamFilter={location}
           managerFilter={manager}
+          repNameFilter={scope.repNameFilter}
         />
       </div>
 
@@ -82,6 +93,7 @@ export default function SalesPage() {
           title="Weekly Sales"
           teamFilter={location}
           managerFilter={manager}
+          repNameFilter={scope.repNameFilter}
         />
       </div>
       <WeeklyTable
@@ -91,8 +103,10 @@ export default function SalesPage() {
         metricKey="sales"
         goalKey="salesGoal"
         title="Weekly Grid"
+        canEditReps={canEditReps}
         teamFilter={location}
         managerFilter={manager}
+        repNameFilter={scope.repNameFilter}
       />
     </PageShell>
   );

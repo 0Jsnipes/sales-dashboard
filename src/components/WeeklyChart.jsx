@@ -34,6 +34,7 @@ export default function WeeklyChart({
   title = "Weekly Sales",
   teamFilter = "All",
   managerFilter = "All",
+  repNameFilter = "",
 }) {
   const isDemo = useDemoMode();
   const [rows, setRows] = useState(null);
@@ -43,6 +44,7 @@ export default function WeeklyChart({
       const normalize = (value) => (value ?? "").trim();
       const teamFilterNorm = normalize(teamFilter);
       const managerFilterNorm = normalize(managerFilter);
+      const repNameFilterNorm = normalize(repNameFilter).toLowerCase();
       const demoRows = getDemoWeekRows(weekISO)
         .filter((row) => {
           if (
@@ -56,6 +58,12 @@ export default function WeeklyChart({
             managerFilterNorm &&
             managerFilterNorm !== "All" &&
             normalize(row.manager) !== managerFilterNorm
+          ) {
+            return false;
+          }
+          if (
+            repNameFilterNorm &&
+            normalize(row.name).toLowerCase() !== repNameFilterNorm
           ) {
             return false;
           }
@@ -95,6 +103,7 @@ export default function WeeklyChart({
       const normalize = (value) => (value ?? "").trim();
       const teamFilterNorm = normalize(teamFilter);
       const managerFilterNorm = normalize(managerFilter);
+      const repNameFilterNorm = normalize(repNameFilter).toLowerCase();
 
       const rawRows = snapshot.docs
         .map((doc) => ({ id: doc.id, ...doc.data() }))
@@ -111,6 +120,12 @@ export default function WeeklyChart({
             managerFilterNorm &&
             managerFilterNorm !== "All" &&
             normalize(row.manager) !== managerFilterNorm
+          ) {
+            return false;
+          }
+          if (
+            repNameFilterNorm &&
+            normalize(row.name).toLowerCase() !== repNameFilterNorm
           ) {
             return false;
           }
@@ -143,7 +158,7 @@ export default function WeeklyChart({
 
       setRows(data);
     });
-  }, [base, isDemo, managerFilter, metricKey, teamFilter, weekISO]);
+  }, [base, isDemo, managerFilter, metricKey, repNameFilter, teamFilter, weekISO]);
 
   const maxY = useMemo(() => {
     if (!rows || rows.length === 0) return 5;

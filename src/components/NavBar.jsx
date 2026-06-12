@@ -1,21 +1,22 @@
 import { useEffect, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import clsx from "clsx";
 
 export default function Navbar({
-  hidden,
-  setHidden,
   isAdmin,
-  isSuperAdmin,
+  isPrimarySuperAdmin,
+  isManager,
+  isUser,
   isDemo,
   canViewPerformance,
   canViewRoster,
+  canViewOnboarding,
   onLogout,
   onOpenLogin,
 }) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const showNav = isAdmin || isDemo || canViewRoster;
+  const showNav = isAdmin || isManager || isUser || isDemo || canViewRoster;
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
@@ -27,18 +28,6 @@ export default function Navbar({
   useEffect(() => {
     if (!showNav) setMobileOpen(false);
   }, [showNav]);
-
-  if (hidden) {
-    return (
-      <button
-        className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full border border-white/70 bg-white/85 px-4 py-2 text-sm font-semibold text-slate-900 shadow-[0_16px_36px_rgba(9,20,35,0.12)] backdrop-blur-xl"
-        onClick={() => setHidden(false)}
-        type="button"
-      >
-        Show Navigation
-      </button>
-    );
-  }
 
   return (
     <header className="sticky top-0 z-50 px-4 pt-4 sm:px-6">
@@ -52,17 +41,8 @@ export default function Navbar({
       >
         <div className="flex items-center gap-3 px-3 py-3 sm:px-4">
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <button
-              className="btn btn-ghost btn-sm hidden md:inline-flex"
-              title="Hide navigation"
-              onClick={() => setHidden(true)}
-              type="button"
-            >
-              Hide
-            </button>
-
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="rounded-[22px] bg-slate-950/95 p-2 shadow-lg shadow-slate-950/10">
+            <Link to="/" className="flex min-w-0 items-center gap-3">
+              <div className="rounded-[22px] border border-slate-200 bg-white p-2 shadow-lg shadow-slate-950/10">
                 <img src="/ab-logo.png" className="h-8 w-8 object-contain" alt="AB" />
               </div>
               <div className="min-w-0">
@@ -73,7 +53,7 @@ export default function Navbar({
                   Field Dashboard
                 </p>
               </div>
-            </div>
+            </Link>
           </div>
 
           <nav className="hidden lg:flex items-center justify-center gap-2">
@@ -85,8 +65,8 @@ export default function Navbar({
                 <NavButton to="/knocks">Knocks</NavButton>
                 <NavButton to="/coverage-map">Map</NavButton>
                 {canViewRoster ? <NavButton to="/roster">Roster</NavButton> : null}
-                {isAdmin ? <NavButton to="/onboarding">Onboarding</NavButton> : null}
-                {isSuperAdmin ? <NavButton to="/settings">Settings</NavButton> : null}
+                {canViewOnboarding ? <NavButton to="/onboarding">Onboarding</NavButton> : null}
+                {isPrimarySuperAdmin ? <NavButton to="/settings">Settings</NavButton> : null}
               </>
             ) : (
               <>
@@ -104,13 +84,13 @@ export default function Navbar({
               </span>
             ) : null}
 
-            {isAdmin ? (
+            {isAdmin || isManager || isUser || isDemo ? (
               <button className="btn btn-outline btn-sm" onClick={onLogout} type="button">
                 Logout
               </button>
             ) : (
               <button className="btn btn-primary btn-sm" onClick={onOpenLogin} type="button">
-                Admin Login
+                Sign In
               </button>
             )}
 
@@ -179,12 +159,12 @@ export default function Navbar({
                   Roster
                 </NavButton>
               ) : null}
-              {isAdmin ? (
+              {canViewOnboarding ? (
                 <NavButton to="/onboarding" onClick={() => setMobileOpen(false)}>
                   Onboarding
                 </NavButton>
               ) : null}
-              {isSuperAdmin ? (
+              {isPrimarySuperAdmin ? (
                 <NavButton to="/settings" onClick={() => setMobileOpen(false)}>
                   Settings
                 </NavButton>

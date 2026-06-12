@@ -137,7 +137,7 @@ const buildDashboardData = (dates, weekMap) => {
   };
 };
 
-export function usePerformanceData(dateRange) {
+export function usePerformanceData(dateRange, scope = {}) {
   const isDemo = useDemoMode();
   const [state, setState] = useState({
     loading: true,
@@ -168,7 +168,24 @@ export function usePerformanceData(dateRange) {
 
     const recompute = () => {
       if (!active) return;
-      const data = buildDashboardData(dates, weekMap);
+      const filteredWeekMap = new Map();
+      weekMap.forEach((reps, weekISO) => {
+        filteredWeekMap.set(
+          weekISO,
+          reps.filter((rep) => {
+            const repName = String(rep.name || "").trim().toLowerCase();
+            const repManager = String(rep.manager || "").trim();
+            if (scope.repNameFilter && repName !== scope.repNameFilter.trim().toLowerCase()) {
+              return false;
+            }
+            if (scope.managerFilter && repManager !== scope.managerFilter) {
+              return false;
+            }
+            return true;
+          })
+        );
+      });
+      const data = buildDashboardData(dates, filteredWeekMap);
       setState({ loading: false, data, error: null });
     };
 
@@ -202,7 +219,7 @@ export function usePerformanceData(dateRange) {
       active = false;
       unsubs.forEach((unsub) => unsub());
     };
-  }, [dateRange, isDemo]);
+  }, [dateRange, isDemo, scope.managerFilter, scope.repNameFilter]);
 
   return state;
 }

@@ -21,6 +21,14 @@ service cloud.firestore {
       return isSuperAdmin() || (isSignedIn() && adminDoc().exists());
     }
 
+    function hasRole(role) {
+      return isSuperAdmin() || (isSignedIn() && adminDoc().data.role == role);
+    }
+
+    function isRoleAdmin() { return hasRole("admin"); }
+    function isRoleManager() { return hasRole("manager"); }
+    function isRoleUser() { return hasRole("user"); }
+
     function hasPerm(field) {
       return isSuperAdmin() || (isSignedIn() && adminDoc().data[field] == true);
     }
@@ -29,12 +37,29 @@ service cloud.firestore {
     function canEditKnocks() { return hasPerm("canEditKnocks"); }
     function canEditRoster() { return hasPerm("canEditRoster"); }
     function canEditOnboarding() { return hasPerm("canEditOnboarding"); }
+    function canEditReps() { return hasPerm("canEditReps"); }
+    function canCreateUsers() { return hasPerm("canCreateUsers"); }
+    function canViewPerformance() { return hasPerm("canViewPerformance"); }
     function canEditAnything() {
-      return canEditSales() || canEditKnocks() || canEditRoster() || canEditOnboarding();
+      return canEditSales() || canEditKnocks() || canEditRoster() || canEditOnboarding() || canEditReps();
     }
 
     function onboardingOnly() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["onboarding"]);
+    }
+
+    function onboardingCreateOnly() {
+      return request.resource.data.keys().hasOnly([
+        "name",
+        "email",
+        "manager",
+        "team",
+        "location",
+        "phone",
+        "program",
+        "onboarding",
+        "createdAt"
+      ]);
     }
 
     match /adminUsers/{uid} {
@@ -54,7 +79,7 @@ service cloud.firestore {
 
     match /weeks/{weekId}/reps/{repId} {
       allow read: if true;
-      allow write: if canEditSales() || canEditKnocks();
+      allow write: if canEditSales() || canEditKnocks() || canEditReps();
     }
 
     match /weeks/{weekId}/meta/{docId} {
@@ -74,7 +99,9 @@ service cloud.firestore {
 
     match /roster/{repId} {
       allow read: if isSignedIn();
-      allow write: if canEditRoster() || (canEditOnboarding() && onboardingOnly());
+      allow create: if canEditRoster() || (canEditOnboarding() && onboardingCreateOnly());
+      allow update: if canEditRoster() || (canEditOnboarding() && onboardingOnly());
+      allow delete: if canEditRoster();
     }
 
     match /rosterOptions/{docId} {

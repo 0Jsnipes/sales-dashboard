@@ -169,11 +169,13 @@ export default function WeeklyTable({
   base = "weeks",
   weekISO,
   canEdit = false,
+  canEditReps = false,
   metricKey = "sales",
   goalKey = "salesGoal",
   title = "Weekly Grid",
   teamFilter = "All",
   managerFilter = "All",
+  repNameFilter = "",
 }) {
   const { user, isSuperAdmin } = useAuthRole();
   const isDemo = useDemoMode();
@@ -189,6 +191,7 @@ export default function WeeklyTable({
   const tmobileFileInputRef = useRef(null);
   const knockFileInputRef = useRef(null);
   const showHeaderActions = canEdit || rows.length > 0;
+  const canManageReps = canEdit || canEditReps;
 
   // Header dates for Mon..Sun
   const headerDates = useMemo(() => {
@@ -209,13 +212,16 @@ export default function WeeklyTable({
       const normalizeFilter = (v) => (v ?? "").trim();
       const teamFilterNorm = normalizeFilter(teamFilter);
       const managerFilterNorm = normalizeFilter(managerFilter);
+      const repNameFilterNorm = normalizeFilter(repNameFilter).toLowerCase();
       const matchesFilters = (rep) =>
         (teamFilterNorm === "" ||
           teamFilterNorm === "All" ||
           normalizeFilter(rep.team) === teamFilterNorm) &&
         (managerFilterNorm === "" ||
           managerFilterNorm === "All" ||
-          normalizeFilter(rep.manager) === managerFilterNorm);
+          normalizeFilter(rep.manager) === managerFilterNorm) &&
+        (repNameFilterNorm === "" ||
+          normalizeFilter(rep.name).toLowerCase() === repNameFilterNorm);
 
       const demoRows = getDemoWeekRows(weekISO)
         .filter((row) => !row.deleted && matchesFilters(row))
@@ -271,13 +277,16 @@ export default function WeeklyTable({
         const normalizeFilter = (v) => (v ?? "").trim();
         const teamFilterNorm = normalizeFilter(teamFilter);
         const managerFilterNorm = normalizeFilter(managerFilter);
+        const repNameFilterNorm = normalizeFilter(repNameFilter).toLowerCase();
         const matchesFilters = (rep) =>
           (teamFilterNorm === "" ||
             teamFilterNorm === "All" ||
             normalizeFilter(rep.team) === teamFilterNorm) &&
           (managerFilterNorm === "" ||
             managerFilterNorm === "All" ||
-            normalizeFilter(rep.manager) === managerFilterNorm);
+            normalizeFilter(rep.manager) === managerFilterNorm) &&
+          (repNameFilterNorm === "" ||
+            normalizeFilter(rep.name).toLowerCase() === repNameFilterNorm);
 
         const allRows = s.docs.map((d) =>
           ensureRowShape({ id: d.id, ...d.data() })
@@ -313,6 +322,7 @@ export default function WeeklyTable({
           existingKeys.add(key);
           const payload = {
             name: data.name || "",
+            email: data.email || "",
             manager: data.manager || "",
             team: data.team || "",
             salesGoal: data.salesGoal,
@@ -362,7 +372,7 @@ export default function WeeklyTable({
       cancelled = true;
       unsub();
     };
-  }, [base, weekISO, teamFilter, managerFilter, metricKey, isDemo]);
+  }, [base, weekISO, teamFilter, managerFilter, repNameFilter, metricKey, isDemo]);
 
   // Totals
   const colTotals = useMemo(() => {
@@ -468,6 +478,7 @@ export default function WeeklyTable({
     arr[dayIdx] = n;
     const baseFields = {
       name: rep.name || "",
+      email: rep.email || "",
       manager: rep.manager || "",
       team: rep.team || "",
       salesGoal: clampNum(rep.salesGoal),
@@ -509,6 +520,7 @@ export default function WeeklyTable({
       doc(db, base, weekISO, "reps", rep.id),
       {
         name: rep.name || "",
+        email: rep.email || "",
         manager: rep.manager || "",
         team: rep.team || "",
         [goalKey]: value === "" ? 0 : clampNum(value),
@@ -808,6 +820,7 @@ export default function WeeklyTable({
             doc(db, base, weekISO, "reps", matchingRep.id),
             {
               name: matchingRep.name || "",
+              email: matchingRep.email || "",
               manager: matchingRep.manager || "",
               team: matchingRep.team || "",
               salesGoal: clampNum(matchingRep.salesGoal),
@@ -1176,7 +1189,7 @@ export default function WeeklyTable({
                 />
               </>
             )}
-            {canEdit ? (
+            {canManageReps ? (
               <button className="btn btn-primary btn-sm" onClick={() => setOpenAdd(true)} type="button">
                 <PlusIcon />
                 <span>Add Reps</span>
@@ -1230,7 +1243,7 @@ export default function WeeklyTable({
                   <th className="w-[6%] px-1 text-center">GOAL</th>
                   <th className="w-[12%] px-2">Progress</th>
                   <th className="w-[8%] px-2">Location</th>
-                  {canEdit ? <th className="w-[8%] px-2" /> : null}
+                  {canManageReps ? <th className="w-[8%] px-2" /> : null}
                 </tr>
               </thead>
 
@@ -1327,7 +1340,7 @@ export default function WeeklyTable({
                         {r.team || ""}
                       </td>
 
-                      {canEdit ? (
+                      {canManageReps ? (
                         <td className="text-right">
                           <div className="flex justify-end gap-1">
                             <button
@@ -1370,7 +1383,7 @@ export default function WeeklyTable({
                     </div>
                   </th>
                   <th>-</th>
-                  {canEdit ? <th /> : null}
+                  {canManageReps ? <th /> : null}
                 </tr>
               </tfoot>
             </table>
@@ -1378,7 +1391,7 @@ export default function WeeklyTable({
         </div>
       ) : null}
 
-      {canEdit ? (
+      {canManageReps ? (
         <div className="mt-4 flex justify-end">
           <button className="btn btn-error btn-sm" onClick={removeAll} type="button">
             Delete All
@@ -1390,7 +1403,7 @@ export default function WeeklyTable({
         weekISO={weekISO}
         open={openAdd}
         onClose={() => setOpenAdd(false)}
-        isAdmin={canEdit}
+        isAdmin={canManageReps}
       />
 
       <EditRepsModal

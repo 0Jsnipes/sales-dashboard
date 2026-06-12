@@ -28,6 +28,7 @@ export async function ensureWeekWithAutoclone(weekISO) {
     const repRef = doc(collection(db, "weeks", weekISO, "reps"));
     writes.push(setDoc(repRef, {
       name: data.name,
+      email: data.email || "",
       team: data.team || "",
       manager: data.manager || "",
       // carry both goals

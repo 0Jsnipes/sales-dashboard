@@ -20,8 +20,13 @@ function parseBulk(input) {
     .filter(Boolean)
     .map((line) => {
       const parts = line.split(/\s*[|,]\s*/);
-      const [name, team = "", manager = ""] = parts;
-      return { name: name?.trim(), team: team?.trim(), manager: manager?.trim() };
+      const [name, team = "", manager = "", email = ""] = parts;
+      return {
+        name: name?.trim(),
+        team: team?.trim(),
+        manager: manager?.trim(),
+        email: email?.trim(),
+      };
     })
     .filter((r) => r.name);
 }
@@ -68,6 +73,7 @@ async function propagateForward({ weekISO, rows, horizon = 12 }) {
 /* ----- component ----- */
 export default function AddRepsModal({ weekISO, open, onClose }) {
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [team, setTeam] = useState("");
   const [manager, setManager] = useState("");
   const [bulk, setBulk] = useState("");
@@ -108,6 +114,7 @@ export default function AddRepsModal({ weekISO, open, onClose }) {
 
   const reset = () => {
     setName("");
+    setEmail("");
     setTeam("");
     setManager("");
     setBulk("");
@@ -122,6 +129,7 @@ export default function AddRepsModal({ weekISO, open, onClose }) {
       if (bulk.trim()) {
         const rows = parseBulk(bulk).map((r) => ({
           name: r.name,
+          email: (r.email || "").trim().toLowerCase(),
           team: r.team || "",
           manager: r.manager || "",
           salesGoal: 0,
@@ -137,6 +145,7 @@ export default function AddRepsModal({ weekISO, open, onClose }) {
         if (!name.trim()) throw new Error("Name is required.");
         const row = {
           name: name.trim(),
+          email: email.trim().toLowerCase(),
           team: team.trim(),
           manager: manager.trim(),
           salesGoal: 0,
@@ -164,12 +173,19 @@ export default function AddRepsModal({ weekISO, open, onClose }) {
       <h3 className="text-lg font-semibold">Add Reps</h3>
 
       <div className="mt-4 grid gap-3">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
           <input
             className="input input-bordered"
             placeholder="Name (single)"
             value={name}
             onChange={(e) => setName(e.target.value)}
+          />
+          <input
+            className="input input-bordered"
+            placeholder="Email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
           />
           <select
             className="select select-bordered w-full"
@@ -201,10 +217,10 @@ export default function AddRepsModal({ weekISO, open, onClose }) {
 
         <textarea
           className="textarea textarea-bordered h-36"
-          placeholder={`One per line. Name, Location, Manager
+          placeholder={`One per line. Name, Location, Manager, Email
 Examples:
-Brandon Jones, Baton Rouge, Jane Smith
-Andrew Burch | Tulsa | Casey Lee
+Brandon Jones, Baton Rouge, Jane Smith, brandon@ab.com
+Andrew Burch | Tulsa | Casey Lee | andrew@ab.com
 Dahtnay Larkin`}
           value={bulk}
           onChange={(e) => setBulk(e.target.value)}
