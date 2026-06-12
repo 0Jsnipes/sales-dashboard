@@ -1,50 +1,93 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { useDemoMode } from "../../hooks/useDemoMode";
 import { getDemoPerformanceData } from "../../demo/demoData.js";
 
-const rangeDays = (range) =>
-  range === "7d" ? 7 : range === "30d" ? 30 : range === "90d" ? 90 : null;
-
 const clean = (value) => String(value ?? "").trim();
 
 const normalizeText = (value) => clean(value).toLowerCase().replace(/\s+/g, " ");
 
-const buildDateRange = (days) => {
-  if (days == null) {
-    return {
-      startId: "",
-      endId: "9999-12-31",
-    };
-  }
-
+const buildRelativeDateRange = (days) => {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const start = new Date(today);
-  start.setDate(today.getDate() - days);
+  start.setDate(today.getDate() - (days - 1));
+  const endExclusive = new Date(today);
+  endExclusive.setDate(today.getDate() + 1);
   return {
     startId: toDateId(start),
-    endId: toDateId(today),
+    endId: toDateId(endExclusive),
+    days,
   };
 };
 
-const buildDatesInRange = (days) => {
-  if (days == null) {
+const buildDatesInRange = (startId, endIdExclusive) => {
+  if (!startId || !endIdExclusive) return [];
+  const start = new Date(`${startId}T00:00:00`);
+  const endExclusive = new Date(`${endIdExclusive}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(endExclusive.getTime()) || start >= endExclusive) {
     return [];
   }
-
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const dates = [];
+  for (let date = new Date(start); date < endExclusive; date.setDate(date.getDate() + 1)) {
+    const current = new Date(date);
+    dates.push(current);
+  }
+  return dates;
+};
 
-  for (let offset = days; offset >= 1; offset -= 1) {
-    const date = new Date(today);
-    date.setDate(today.getDate() - offset);
-    dates.push(date);
+const normalizeDateRangeInput = (rangeInput) => {
+  if (rangeInput && typeof rangeInput === "object") {
+    const rawStart = clean(rangeInput.startDate);
+    const rawEnd = clean(rangeInput.endDate);
+    const startId = dateIdFromValue(rawStart);
+    const endId = dateIdFromValue(rawEnd);
+
+    if (startId && endId) {
+      const orderedStart = startId <= endId ? startId : endId;
+      const orderedEnd = startId <= endId ? endId : startId;
+      const startDate = new Date(`${orderedStart}T00:00:00`);
+      const endDate = new Date(`${orderedEnd}T00:00:00`);
+      const endExclusive = new Date(endDate);
+      endExclusive.setDate(endDate.getDate() + 1);
+      const diffDays =
+        Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
+
+      return {
+        startId: orderedStart,
+        endId: toDateId(endExclusive),
+        days: Math.max(diffDays, 1),
+      };
+    }
   }
 
-  return dates;
+  const days =
+    rangeInput === "30d" ? 30 : rangeInput === "90d" ? 90 : 7;
+  return buildRelativeDateRange(days);
+};
+
+const buildDateRangeLabel = (startId, endIdExclusive) => {
+  if (!startId || !endIdExclusive) return "Custom";
+  const endDate = new Date(`${endIdExclusive}T00:00:00`);
+  endDate.setDate(endDate.getDate() - 1);
+  return `${startId} to ${toDateId(endDate)}`;
+};
+
+const buildDateRange = (rangeInput) => {
+  const normalized = normalizeDateRangeInput(rangeInput);
+  return {
+    ...normalized,
+    label: buildDateRangeLabel(normalized.startId, normalized.endId),
+  };
+};
+
+const buildDemoRangeInput = (normalizedRange) => {
+  if (!normalizedRange) return "7d";
+  if (normalizedRange.days <= 7) return "7d";
+  if (normalizedRange.days <= 30) return "30d";
+  if (normalizedRange.days <= 90) return "90d";
+  return { days: normalizedRange.days };
 };
 
 const toDateId = (date) => {
@@ -74,6 +117,11 @@ const firstValue = (...values) => {
 const safeNumber = (value) => {
   const num = Number(value);
   return Number.isFinite(num) && num >= 0 ? num : 0;
+};
+
+const todayDateId = () => {
+  const now = new Date();
+  return toDateId(new Date(now.getFullYear(), now.getMonth(), now.getDate()));
 };
 
 const weekISOForDate = (date) => {
@@ -145,13 +193,29 @@ const addressFromOrder = (order) =>
   firstValue(
     order.address,
     order.rawData?.Address,
+    order.rawData?.["Street Address"],
     order.rawData?.CustomerAddress,
     order.rawData?.ServiceAddress,
     order.rawData?.CustAddress,
     order.data?.address,
+    order.data?.streetAddress,
     order.data?.customerAddress,
     order.data?.serviceAddress,
     order.data?.custAddress
+  );
+
+const dueDateFromOrder = (order) =>
+  firstValue(
+    order.dueDate,
+    order.internetInstallDate,
+    order.rawData?.["Est. Installation Date"],
+    order.rawData?.["Track Until Date"],
+    order.rawData?.Internet_InstallDate,
+    order.rawData?.Video_InstallDate,
+    order.rawData?.Voice_InstallDate,
+    order.rawData?.HomeAutomation_InstallDate,
+    order.data?.dueDate,
+    order.data?.internetInstallDate
   );
 
 const classifyStatus = (order) => {
@@ -186,10 +250,28 @@ const classifyPending = (classifications, order) => {
   );
 };
 
+const hasPackageValue = (value) => {
+  if (value == null) return false;
+  return String(value).trim() !== "";
+};
+
+const isAttVideoOnlyWithoutInstallDate = (order) => {
+  const rawData = order.rawData || {};
+  const hasVideoPackage = hasPackageValue(rawData.Video_Package);
+  const hasInternetPackage = hasPackageValue(rawData.Internet_Package);
+  const hasWirelessPackage = hasPackageValue(rawData.Wireless_Package);
+  const hasVideoInstallDate = !!dateIdFromValue(
+    firstValue(order.videoInstallDate, rawData.Video_InstallDate, order.data?.videoInstallDate)
+  );
+
+  return hasVideoPackage && !hasInternetPackage && !hasWirelessPackage && !hasVideoInstallDate;
+};
+
 const normalizeAttOrder = (doc) => {
   const data = doc.data();
   const rawData = data.rawData || {};
   const orderDateId = data.orderDateId || dateIdFromValue(data.orderDate || rawData.OrderDate);
+  const dueDate = dueDateFromOrder(data);
   const status = statusFromOrder(data);
   const classifications = classifyStatus(data);
 
@@ -223,11 +305,15 @@ const normalizeAttOrder = (doc) => {
     status,
     internetCurrentStatus: firstValue(data.internetCurrentStatus, rawData.Internet_CurrentStatus),
     internetInstallDate: firstValue(data.internetInstallDate, rawData.Internet_InstallDate),
+    dueDate,
+    dueDateId: dateIdFromValue(dueDate),
     rawData,
     data: data.data || {},
     classifications: {
       ...classifications,
-      pending: classifyPending(classifications, data),
+      pending:
+        classifyPending(classifications, data) &&
+        !isAttVideoOnlyWithoutInstallDate(data),
     },
   };
 };
@@ -236,6 +322,7 @@ const normalizeTFiberOrder = (doc) => {
   const data = doc.data();
   const rawData = data.rawData || {};
   const orderDateId = data.orderDateId || dateIdFromValue(data.orderDate || rawData["Order Date"]);
+  const dueDate = dueDateFromOrder(data);
   const status = statusFromOrder(data);
   const classifications = classifyStatus(data);
 
@@ -260,6 +347,8 @@ const normalizeTFiberOrder = (doc) => {
     email: emailFromOrder(data),
     address: addressFromOrder(data),
     status,
+    dueDate,
+    dueDateId: dateIdFromValue(dueDate),
     rawData,
     data: data.data || {},
     classifications: {
@@ -292,11 +381,14 @@ const emptyMetrics = () => ({
   churned: 0,
   installedActive: 0,
   pendingInstalls: 0,
+  pastDueInstalls: 0,
   cancellationRate: 0,
   churnRate: 0,
   installedActiveRate: 0,
   pendingInstallRate: 0,
   conversionRate: 0,
+  nextPendingDueDateId: "",
+  oldestPastDueDateId: "",
 });
 
 const finalizeMetrics = (metrics) => {
@@ -313,6 +405,7 @@ const finalizeMetrics = (metrics) => {
 };
 
 const applyOrderToMetrics = (metrics, order) => {
+  const todayId = todayDateId();
   metrics.totalSales += order.saleCount || 0;
   metrics.orderCount += 1;
   if (order.provider === "ATT") metrics.attSales += order.saleCount || 0;
@@ -320,12 +413,36 @@ const applyOrderToMetrics = (metrics, order) => {
   if (order.classifications.cancelled) metrics.cancellations += 1;
   if (order.classifications.churned) metrics.churned += 1;
   if (order.classifications.active) metrics.installedActive += 1;
-  if (order.classifications.pending) metrics.pendingInstalls += 1;
+  if (order.classifications.pending) {
+    if (order.dueDateId && order.dueDateId < todayId) {
+      metrics.pastDueInstalls += 1;
+      if (!metrics.oldestPastDueDateId || order.dueDateId < metrics.oldestPastDueDateId) {
+        metrics.oldestPastDueDateId = order.dueDateId;
+      }
+    } else {
+      metrics.pendingInstalls += 1;
+      if (order.dueDateId) {
+        if (!metrics.nextPendingDueDateId || order.dueDateId < metrics.nextPendingDueDateId) {
+          metrics.nextPendingDueDateId = order.dueDateId;
+        }
+      }
+    }
+  }
 };
 
-const buildDashboardData = (orders, knockTotalsByRep = new Map()) => {
+const buildDashboardData = (orders, knockTotalsByRep = new Map(), allTimeOrders = orders) => {
   const repsMap = new Map();
   const companyMetrics = emptyMetrics();
+  const allTimeRepMetrics = new Map();
+  const allTimeCompanyMetrics = emptyMetrics();
+
+  allTimeOrders.forEach((order) => {
+    applyOrderToMetrics(allTimeCompanyMetrics, order);
+    const repKey = normalizeText(order.repName) || order.repId || "unassigned";
+    const repMetrics = allTimeRepMetrics.get(repKey) || emptyMetrics();
+    applyOrderToMetrics(repMetrics, order);
+    allTimeRepMetrics.set(repKey, repMetrics);
+  });
 
   orders.forEach((order) => {
     applyOrderToMetrics(companyMetrics, order);
@@ -337,6 +454,7 @@ const buildDashboardData = (orders, knockTotalsByRep = new Map()) => {
       manager: order.manager || "",
       metrics: emptyMetrics(),
       orders: [],
+      allTimeOrders: [],
     };
 
     existing.name = order.repName || existing.name;
@@ -346,17 +464,35 @@ const buildDashboardData = (orders, knockTotalsByRep = new Map()) => {
     repsMap.set(repKey, existing);
   });
 
+  allTimeOrders.forEach((order) => {
+    const repKey = normalizeText(order.repName) || order.repId || "unassigned";
+    const existing = repsMap.get(repKey);
+    if (existing) {
+      existing.allTimeOrders.push(order);
+    }
+  });
+
   const reps = Array.from(repsMap.values())
     .map((rep) => {
       const metrics = {
         ...rep.metrics,
         totalKnocks: knockTotalsByRep.get(rep.id) || 0,
       };
+      const allTimeMetrics = allTimeRepMetrics.get(rep.id) || emptyMetrics();
 
       return {
         ...rep,
         ...finalizeMetrics(metrics),
+        allTimePendingInstalls: allTimeMetrics.pendingInstalls || 0,
+        allTimePastDueInstalls: allTimeMetrics.pastDueInstalls || 0,
+        nextPendingDueDateId: metrics.nextPendingDueDateId || "",
+        oldestPastDueDateId: metrics.oldestPastDueDateId || "",
+        allTimeNextPendingDueDateId: allTimeMetrics.nextPendingDueDateId || "",
+        allTimeOldestPastDueDateId: allTimeMetrics.oldestPastDueDateId || "",
         orders: rep.orders.sort((a, b) =>
+          (b.orderDateId || "").localeCompare(a.orderDateId || "")
+        ),
+        allTimeOrders: rep.allTimeOrders.sort((a, b) =>
           (b.orderDateId || "").localeCompare(a.orderDateId || "")
         ),
       };
@@ -370,10 +506,20 @@ const buildDashboardData = (orders, knockTotalsByRep = new Map()) => {
 
   return {
     orders,
+    scopedOrdersAllTime: allTimeOrders.sort((a, b) =>
+      (b.orderDateId || "").localeCompare(a.orderDateId || "")
+    ),
     reps,
     companyKPIs: {
       ...finalizeMetrics(companyMetrics),
       activeReps: reps.filter((rep) => rep.totalSales > 0).length,
+      pastDueInstalls: companyMetrics.pastDueInstalls || 0,
+      nextPendingDueDateId: companyMetrics.nextPendingDueDateId || "",
+      oldestPastDueDateId: companyMetrics.oldestPastDueDateId || "",
+      allTimePendingInstalls: allTimeCompanyMetrics.pendingInstalls || 0,
+      allTimePastDueInstalls: allTimeCompanyMetrics.pastDueInstalls || 0,
+      allTimeNextPendingDueDateId: allTimeCompanyMetrics.nextPendingDueDateId || "",
+      allTimeOldestPastDueDateId: allTimeCompanyMetrics.oldestPastDueDateId || "",
     },
   };
 };
@@ -440,6 +586,7 @@ export function usePerformanceData(dateRange, scope = {}) {
   const isDemo = useDemoMode();
   const managerFilter = scope.managerFilter || "";
   const repNameFilter = scope.repNameFilter || "";
+  const normalizedRange = useMemo(() => buildDateRange(dateRange), [dateRange]);
   const [state, setState] = useState({
     loading: true,
     data: null,
@@ -450,7 +597,7 @@ export function usePerformanceData(dateRange, scope = {}) {
     if (isDemo) {
       setState({
         loading: false,
-        data: getDemoPerformanceData(dateRange),
+        data: getDemoPerformanceData(buildDemoRangeInput(normalizedRange)),
         error: null,
       });
       return undefined;
@@ -459,8 +606,8 @@ export function usePerformanceData(dateRange, scope = {}) {
     let active = true;
     setState({ loading: true, data: null, error: null });
 
-    const dates = buildDatesInRange(rangeDays(dateRange));
-    const range = buildDateRange(rangeDays(dateRange));
+    const dates = buildDatesInRange(normalizedRange.startId, normalizedRange.endId);
+    const range = normalizedRange;
     const sourceOrderBuckets = {
       attAgentManager: [],
       attManager: [],
@@ -477,8 +624,7 @@ export function usePerformanceData(dateRange, scope = {}) {
       if (!active) return;
 
       const scopedRepNames = buildScopedRepNames(weekMap, managerFilter, repNameFilter);
-
-      const orders = [
+      const scopedOrders = [
         ...mergeOrdersByUid(
           sourceOrderBuckets.attAll,
           sourceOrderBuckets.attAgentManager,
@@ -492,16 +638,16 @@ export function usePerformanceData(dateRange, scope = {}) {
           sourceOrderBuckets.tfiberRepName
         ),
       ]
-        .filter((order) => inDateRange(order, range))
         .filter((order) =>
           !scopedRepNames || scopedRepNames.has(normalizeText(order.repName))
         )
         .filter((order) => passesScope(order, { managerFilter, repNameFilter }));
+      const orders = scopedOrders.filter((order) => inDateRange(order, range));
       const knockTotalsByRep = buildKnockTotalsByRep(dates, weekMap);
 
       setState({
         loading: false,
-        data: buildDashboardData(orders, knockTotalsByRep),
+        data: buildDashboardData(orders, knockTotalsByRep, scopedOrders),
         error: null,
       });
     };
@@ -601,7 +747,7 @@ export function usePerformanceData(dateRange, scope = {}) {
       weekUnsubs.forEach((unsub) => unsub());
       orderUnsubs.forEach((unsub) => unsub());
     };
-  }, [dateRange, isDemo, managerFilter, repNameFilter]);
+  }, [dateRange, isDemo, managerFilter, normalizedRange, repNameFilter]);
 
   return state;
 }

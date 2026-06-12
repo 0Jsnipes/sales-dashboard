@@ -30,6 +30,7 @@ export default function Navbar({
   const [previewReps, setPreviewReps] = useState([]);
   const previewDesktopRef = useRef(null);
   const showNav = isAdmin || isManager || isUser || isDemo || canViewRoster;
+  const showRosterNav = canViewRoster && !isManager;
   const currentWeekISO = toISO(startOfWeek());
   const previewMode = viewPreview?.mode || "admin";
 
@@ -167,7 +168,7 @@ export default function Navbar({
                 <NavButton to="/leaderboard">Leaderboard</NavButton>
                 <NavButton to="/knocks">Knocks</NavButton>
                 {canViewMap ? <NavButton to="/coverage-map">Map</NavButton> : null}
-                {canViewRoster ? <NavButton to="/roster">Roster</NavButton> : null}
+                {showRosterNav ? <NavButton to="/roster">Roster</NavButton> : null}
                 {canViewOnboarding ? <NavButton to="/onboarding">Onboarding</NavButton> : null}
                 {isPrimarySuperAdmin || isManager || isUser ? (
                   <NavButton to="/settings">Settings</NavButton>
@@ -379,7 +380,7 @@ export default function Navbar({
                   Map
                 </NavButton>
               ) : null}
-              {canViewRoster ? (
+              {showRosterNav ? (
                 <NavButton to="/roster" onClick={() => setMobileOpen(false)}>
                   Roster
                 </NavButton>

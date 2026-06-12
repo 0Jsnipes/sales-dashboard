@@ -301,8 +301,8 @@ export default function CoverageMapPage() {
     loading: false,
   });
   const [activePaint, setActivePaint] = useState("att");
-  const [paintToolOpen, setPaintToolOpen] = useState(true);
-  const [providerColorsOpen, setProviderColorsOpen] = useState(true);
+  const [paintToolOpen, setPaintToolOpen] = useState(false);
+  const [providerColorsOpen, setProviderColorsOpen] = useState(false);
   const [sharedStateError, setSharedStateError] = useState("");
   const { ready: leafletReady, error: leafletError } = useLeaflet();
   const { user, isDemo } = useAuthRole();

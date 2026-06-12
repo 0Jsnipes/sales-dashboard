@@ -34,12 +34,17 @@ const sections = [
     ],
   },
   {
-    title: "Background",
+    title: "Tools",
     buttons: [
       {
         label: "Background checks - T-fiber",
         colorClass: "bg-pink-500 text-white hover:bg-pink-600",
         link: "https://simpliverified.instascreen.net/sso/login.taz",
+      },
+      {
+        label: "Lead request",
+        colorClass: "bg-slate-900 text-white hover:bg-slate-800",
+        link: "https://form.jotform.com/261517764960061",
       },
     ],
   },
@@ -491,16 +496,26 @@ export default function OnboardingPage() {
                 </div>
                 <div className="flex flex-col gap-3">
                   {section.buttons.map((btn) => (
-                    <a
-                      key={btn.label}
-                      href={btn.link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`btn mx-auto h-12 w-64 items-center justify-center text-center rounded-full border-0 text-sm font-semibold shadow ${btn.colorClass}`}
-                      role="button"
-                    >
-                      {btn.label}
-                    </a>
+                    btn.disabled || !btn.link ? (
+                      <span
+                        key={btn.label}
+                        className={`btn mx-auto h-12 w-64 cursor-not-allowed items-center justify-center rounded-full border-0 text-center text-sm font-semibold shadow opacity-70 ${btn.colorClass}`}
+                        aria-disabled="true"
+                      >
+                        {btn.label}
+                      </span>
+                    ) : (
+                      <a
+                        key={btn.label}
+                        href={btn.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`btn mx-auto h-12 w-64 items-center justify-center rounded-full border-0 text-center text-sm font-semibold shadow ${btn.colorClass}`}
+                        role="button"
+                      >
+                        {btn.label}
+                      </a>
+                    )
                   ))}
                 </div>
               </div>

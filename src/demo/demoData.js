@@ -136,7 +136,14 @@ export function getDemoDailyData(days) {
 }
 
 export function getDemoPerformanceData(dateRange) {
-  const days = dateRange === "7d" ? 7 : dateRange === "30d" ? 30 : 90;
+  const days =
+    typeof dateRange === "object" && Number.isFinite(Number(dateRange?.days))
+      ? Math.max(1, Number(dateRange.days))
+      : dateRange === "30d"
+        ? 30
+        : dateRange === "90d"
+          ? 90
+          : 7;
   const dailyData = getDemoDailyData(days);
 
   const repsMap = new Map();
