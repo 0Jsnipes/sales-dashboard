@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { PageHero, PageShell } from "../components/PageLayout.jsx";
+import { LoadingPanel, PageHero, PageShell } from "../components/PageLayout.jsx";
 import TeamFilter from "../components/TeamFilter.jsx";
 import WeekSwitcher from "../components/WeekSwitcher.jsx";
 import WeeklyChart from "../components/WeeklyChart.jsx";
@@ -23,7 +23,7 @@ export default function KnocksPage() {
   if (loading) {
     return (
       <PageShell>
-        <div className="surface-panel px-5 py-8 text-sm text-slate-600">Loading...</div>
+        <LoadingPanel label="Loading knocks" detail="Preparing weekly activity." />
       </PageShell>
     );
   }

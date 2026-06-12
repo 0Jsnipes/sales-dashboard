@@ -55,7 +55,7 @@ function IconUsers({ className }) {
   );
 }
 
-function IconCalendar({ className }) {
+function IconClipboard({ className }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -67,81 +67,82 @@ function IconCalendar({ className }) {
       className={className}
       aria-hidden="true"
     >
-      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-      <path d="M16 2v4" />
-      <path d="M8 2v4" />
-      <path d="M3 10h18" />
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      <rect x="8" y="2" width="8" height="4" rx="1" />
+      <path d="M8 12h8" />
+      <path d="M8 16h6" />
+    </svg>
+  );
+}
+
+function IconBolt({ className }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
     </svg>
   );
 }
 
 export default function KPICards({ data, selectedRep }) {
   const rep = selectedRep ? data.reps.find((item) => item.id === selectedRep) : null;
+  const metrics = rep || data.companyKPIs;
 
-  const cards = rep
-    ? [
-        {
-          label: "Total Knocks",
-          value: rep.knocks,
-          icon: IconTrending,
-          tint: "from-sky-100 to-sky-50",
-          iconColor: "text-sky-600",
-        },
-        {
-          label: "Total Sales",
-          value: rep.sales,
-          icon: IconTarget,
-          tint: "from-emerald-100 to-emerald-50",
-          iconColor: "text-emerald-600",
-        },
-        {
-          label: "Conversion Rate",
-          value: `${((rep.sales / Math.max(rep.knocks, 1)) * 100).toFixed(1)}%`,
-          icon: IconTrending,
-          tint: "from-amber-100 to-amber-50",
-          iconColor: "text-amber-600",
-        },
-        {
-          label: "Days Active",
-          value: rep.daysActive,
-          icon: IconCalendar,
-          tint: "from-rose-100 to-rose-50",
-          iconColor: "text-rose-600",
-        },
-      ]
-    : [
-        {
-          label: "Total Knocks",
-          value: data.companyKPIs.totalKnocks,
-          icon: IconTrending,
-          tint: "from-sky-100 to-sky-50",
-          iconColor: "text-sky-600",
-        },
-        {
-          label: "Total Sales",
-          value: data.companyKPIs.totalSales,
-          icon: IconTarget,
-          tint: "from-emerald-100 to-emerald-50",
-          iconColor: "text-emerald-600",
-        },
-        {
-          label: "Conversion Rate",
-          value: `${data.companyKPIs.conversionRate.toFixed(1)}%`,
-          icon: IconTrending,
-          tint: "from-amber-100 to-amber-50",
-          iconColor: "text-amber-600",
-        },
-        {
-          label: "Active Reps Yesterday",
-          value: data.companyKPIs.activeReps,
-          icon: IconUsers,
-          tint: "from-rose-100 to-rose-50",
-          iconColor: "text-rose-600",
-        },
-      ];
+  const cards = [
+    {
+      label: "Total Sales",
+      value: metrics.totalSales || 0,
+      icon: IconTarget,
+      tint: "from-emerald-100 to-emerald-50",
+      iconColor: "text-emerald-600",
+    },
+    {
+      label: "ATT Sales",
+      value: metrics.attSales || 0,
+      icon: IconTrending,
+      tint: "from-sky-100 to-sky-50",
+      iconColor: "text-sky-600",
+    },
+    {
+      label: "T-Fiber Sales",
+      value: metrics.tFiberSales || 0,
+      icon: IconTrending,
+      tint: "from-violet-100 to-violet-50",
+      iconColor: "text-violet-600",
+    },
+    {
+      label: "Total Knocks",
+      value: metrics.totalKnocks || 0,
+      icon: IconBolt,
+      tint: "from-amber-100 to-amber-50",
+      iconColor: "text-amber-600",
+    },
+    {
+      label: "Conversion Rate",
+      value: `${Number(metrics.conversionRate || 0).toFixed(1)}%`,
+      icon: IconTrending,
+      tint: "from-rose-100 to-rose-50",
+      iconColor: "text-rose-600",
+    },
+    {
+      label: rep ? "Orders" : "Active Reps",
+      value: rep ? rep.orderCount || 0 : data.companyKPIs.activeReps || 0,
+      icon: rep ? IconClipboard : IconUsers,
+      tint: "from-slate-100 to-slate-50",
+      iconColor: "text-slate-700",
+    },
+  ];
 
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
       {cards.map((card) => {
         const Icon = card.icon;
         return (
@@ -161,7 +162,9 @@ export default function KPICards({ data, selectedRep }) {
             </div>
 
             <p className="mt-6 text-sm font-medium text-slate-500">{card.label}</p>
-            <p className="mt-2 font-display text-3xl font-bold text-slate-950">{card.value}</p>
+            <p className="mt-2 font-display text-3xl font-bold text-slate-950">
+              {card.value}
+            </p>
           </article>
         );
       })}

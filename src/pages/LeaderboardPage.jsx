@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
 import { useSearchParams } from "react-router-dom";
 import TeamFilter from "../components/TeamFilter.jsx";
-import { PageHero, PageShell } from "../components/PageLayout.jsx";
+import { LoadingPanel, PageHero, PageShell } from "../components/PageLayout.jsx";
 import WeekSwitcher from "../components/WeekSwitcher.jsx";
 import { getDemoWeekRows } from "../demo/demoData.js";
 import { useAuthRole } from "../hooks/useAuth";
+import { buildAccessScope } from "../lib/accessScope.js";
 import { db } from "../lib/firebase";
 import { startOfWeek, toISO } from "../utils/weeks.js";
 
@@ -26,11 +27,13 @@ const placeCopy = {
 };
 
 export default function LeaderboardPage() {
-  const { isAdmin, isDemo, loading } = useAuthRole();
+  const authState = useAuthRole();
+  const { isAdmin, isDemo, loading } = authState;
+  const scope = buildAccessScope(authState);
   const [weekISO, setWeekISO] = useState(toISO(startOfWeek()));
   const [params, setParams] = useSearchParams();
-  const location = params.get("location") || "All";
-  const manager = params.get("manager") || "All";
+  const location = scope.locationFilter || params.get("location") || "All";
+  const manager = scope.managerFilter || params.get("manager") || "All";
   const [leaders, setLeaders] = useState([]);
 
   useEffect(() => {
@@ -39,6 +42,7 @@ export default function LeaderboardPage() {
     const normalize = (value) => (value ?? "").trim();
     const locationFilter = normalize(location);
     const managerFilter = normalize(manager);
+    const repNameFilter = normalize(scope.repNameFilter).toLowerCase();
 
     const buildLeaders = (rows) => {
       const normalized = rows
@@ -56,6 +60,9 @@ export default function LeaderboardPage() {
             managerFilter !== "All" &&
             normalize(row.manager) !== managerFilter
           ) {
+            return false;
+          }
+          if (repNameFilter && normalize(row.name).toLowerCase() !== repNameFilter) {
             return false;
           }
           return true;
@@ -106,7 +113,7 @@ export default function LeaderboardPage() {
     });
 
     return () => unsubscribe();
-  }, [isDemo, location, manager, weekISO]);
+  }, [isDemo, location, manager, scope.repNameFilter, weekISO]);
 
   const ranked = useMemo(() => {
     let lastScore = null;
@@ -139,7 +146,7 @@ export default function LeaderboardPage() {
   if (loading && !isDemo) {
     return (
       <PageShell>
-        <div className="surface-panel px-5 py-8 text-sm text-slate-600">Loading...</div>
+        <LoadingPanel label="Loading leaderboard" detail="Ranking the current week." />
       </PageShell>
     );
   }
@@ -160,14 +167,20 @@ export default function LeaderboardPage() {
 
       <div className="grid gap-4">
         <WeekSwitcher weekISO={weekISO} setWeekISO={setWeekISO} />
-        <TeamFilter
-          weekISO={weekISO}
-          location={location}
-          setLocation={setLocation}
-          manager={manager}
-          setManager={setManager}
-          canChange={isAdmin || isDemo}
-        />
+        {!scope.hideFilters ? (
+          <TeamFilter
+            weekISO={weekISO}
+            location={location}
+            setLocation={setLocation}
+            manager={manager}
+            setManager={setManager}
+            canChange={isAdmin || isDemo}
+            showLocation={true}
+            showManager={!scope.lockManagerFilter || !!scope.managerFilter}
+            lockLocation={scope.lockLocationFilter}
+            lockManager={scope.lockManagerFilter}
+          />
+        ) : null}
       </div>
 
       <section className="glass-panel p-4 sm:p-5">

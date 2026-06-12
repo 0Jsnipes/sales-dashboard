@@ -6,17 +6,30 @@ export default function LandingPage({
   isAdmin,
   isSuperAdmin,
   isManager,
+  isUser,
   canViewRoster,
   canViewPerformance,
   canViewOnboarding,
+  canViewMap,
   onOpenLogin,
 }) {
   const signedIn = !!user;
-  const roleLabel = isSuperAdmin ? "Admin" : isManager ? "Manager" : isAdmin ? "User" : "Guest";
+  const roleLabel = isSuperAdmin
+    ? "Admin"
+    : isManager
+    ? "Manager"
+    : isUser
+    ? "User"
+    : isAdmin
+    ? "Admin"
+    : "Guest";
   const appLinks = [
     { to: "/sales", label: "Sales", text: "Track weekly sales by team and representative." },
     { to: "/leaderboard", label: "Leaderboard", text: "See current rankings and momentum." },
     { to: "/knocks", label: "Knocks", text: "Review field activity and production pace." },
+    ...(canViewMap
+      ? [{ to: "/coverage-map", label: "Map", text: "See territory and coverage tools." }]
+      : []),
     ...(canViewPerformance
       ? [{ to: "/performance", label: "Performance", text: "Compare trends and activity signals." }]
       : []),

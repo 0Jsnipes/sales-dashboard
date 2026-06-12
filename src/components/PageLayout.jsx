@@ -79,3 +79,37 @@ export function SectionIntro({
     </div>
   );
 }
+
+export function LoadingPanel({
+  label = "Loading workspace",
+  detail = "Syncing the latest dashboard data.",
+  compact = false,
+  className = "",
+}) {
+  return (
+    <div
+      className={clsx(
+        "loading-panel",
+        compact && "loading-panel--compact",
+        className
+      )}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="loading-orbit" aria-hidden="true">
+        <span className="loading-orbit__ring" />
+        <span className="loading-orbit__dot loading-orbit__dot--one" />
+        <span className="loading-orbit__dot loading-orbit__dot--two" />
+      </div>
+      <div className="min-w-0">
+        <p className="loading-panel__label">{label}</p>
+        {detail ? <p className="loading-panel__detail">{detail}</p> : null}
+        <div className="loading-bars" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+      </div>
+    </div>
+  );
+}

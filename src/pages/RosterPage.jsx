@@ -15,7 +15,7 @@ import { normalizeEmail } from "../lib/access";
 import { useAuthRole } from "../hooks/useAuth";
 import { extractRosterFieldsFromPdf } from "../lib/rosterPdf";
 import Modal from "../components/Modal";
-import { PageHero, PageShell } from "../components/PageLayout.jsx";
+import { LoadingPanel, PageHero, PageShell } from "../components/PageLayout.jsx";
 
 export default function RosterPage({
   canViewRoster = false,
@@ -1194,7 +1194,7 @@ export default function RosterPage({
   if (loading || accessLoading) {
     return (
       <PageShell>
-        <div className="surface-panel px-5 py-8 text-sm text-slate-600">Loading...</div>
+        <LoadingPanel label="Loading roster" detail="Syncing rep records." />
       </PageShell>
     );
   }

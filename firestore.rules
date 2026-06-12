@@ -44,6 +44,24 @@ service cloud.firestore {
       return canEditSales() || canEditKnocks() || canEditRoster() || canEditOnboarding() || canEditReps();
     }
 
+    function allowedSalesUploadGroup(groupId) {
+      return groupId in ["att sales", "t-fiber sales"];
+    }
+
+    function canReadSalesUploadOrder(groupId) {
+      return allowedSalesUploadGroup(groupId) && canViewPerformance() && (
+        isRoleAdmin() ||
+        isRoleManager() ||
+        (isRoleUser() && (
+          (groupId == "att sales" && (
+            resource.data.salespersonName == adminDoc().data.repName ||
+            resource.data.repName == adminDoc().data.repName
+          )) ||
+          (groupId == "t-fiber sales" && resource.data.repName == adminDoc().data.repName)
+        ))
+      );
+    }
+
     function onboardingOnly() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["onboarding"]);
     }
@@ -62,9 +80,20 @@ service cloud.firestore {
       ]);
     }
 
+    function selfProfileUpdateOnly() {
+      return request.auth.uid == resource.id &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "repName",
+          "phone",
+          "updatedAt",
+          "updatedBy"
+        ]) &&
+        request.resource.data.updatedBy == request.auth.uid;
+    }
+
     match /adminUsers/{uid} {
       allow read: if isSuperAdmin() || (isSignedIn() && request.auth.uid == uid);
-      allow write: if isSuperAdmin();
+      allow write: if isSuperAdmin() || (isSignedIn() && selfProfileUpdateOnly());
     }
 
     match /teams/{teamId} {
@@ -117,6 +146,17 @@ service cloud.firestore {
     match /auditLogs/{docId} {
       allow read: if isAdminUser();
       allow write: if canEditAnything();
+    }
+
+    match /salesUploads/{groupId} {
+      allow read: if isAdminUser();
+      allow write: if canEditSales() && allowedSalesUploadGroup(groupId);
+    }
+
+    match /salesUploads/{groupId}/{collectionId}/{docId} {
+      allow read: if collectionId == "orders" && canReadSalesUploadOrder(groupId);
+      allow read: if collectionId == "uploadLogs" && isRoleAdmin();
+      allow write: if canEditSales() && allowedSalesUploadGroup(groupId);
     }
 
     match /sharedMaps/{mapId} {

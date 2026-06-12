@@ -1,22 +1,101 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
+import { collection, onSnapshot } from "firebase/firestore";
 import clsx from "clsx";
+import { db } from "../lib/firebase";
+import { startOfWeek, toISO } from "../utils/weeks.js";
 
 export default function Navbar({
   isAdmin,
   isPrimarySuperAdmin,
+  actualIsPrimarySuperAdmin,
   isManager,
   isUser,
   isDemo,
   canViewPerformance,
   canViewRoster,
   canViewOnboarding,
+  canViewMap,
+  viewPreview,
+  onViewPreviewChange,
+  onClearViewPreview,
   onLogout,
   onOpenLogin,
 }) {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [previewDesktopOpen, setPreviewDesktopOpen] = useState(false);
+  const [previewReps, setPreviewReps] = useState([]);
+  const previewDesktopRef = useRef(null);
   const showNav = isAdmin || isManager || isUser || isDemo || canViewRoster;
+  const currentWeekISO = toISO(startOfWeek());
+  const previewMode = viewPreview?.mode || "admin";
+
+  useEffect(() => {
+    if (!actualIsPrimarySuperAdmin) return undefined;
+    const unsubscribe = onSnapshot(collection(db, "weeks", currentWeekISO, "reps"), (snapshot) => {
+      const rows = snapshot.docs
+        .map((docRef) => ({ id: docRef.id, ...docRef.data() }))
+        .filter((rep) => !rep.deleted && (rep.name || "").trim())
+        .sort((a, b) =>
+          String(a.name || "").localeCompare(String(b.name || ""), undefined, {
+            sensitivity: "base",
+          })
+        );
+      setPreviewReps(rows);
+    });
+    return () => unsubscribe();
+  }, [actualIsPrimarySuperAdmin, currentWeekISO]);
+
+  const managerOptions = useMemo(() => {
+    const values = new Set();
+    previewReps.forEach((rep) => {
+      if (rep.manager) values.add(rep.manager.trim());
+    });
+    return Array.from(values).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  }, [previewReps]);
+
+  const handlePreviewModeChange = (nextMode) => {
+    if (!onViewPreviewChange) return;
+
+    if (nextMode === "admin") {
+      onClearViewPreview?.();
+      return;
+    }
+
+    if (nextMode === "manager") {
+      onViewPreviewChange({
+        mode: "manager",
+        team: viewPreview?.mode === "manager" ? viewPreview.team || "" : managerOptions[0] || "",
+      });
+      return;
+    }
+
+    const rep =
+      previewReps.find((entry) => entry.id === viewPreview?.repId) ||
+      previewReps[0] ||
+      null;
+
+    onViewPreviewChange({
+      mode: "user",
+      repId: rep?.id || "",
+      repName: rep?.name || "",
+      team: rep?.manager || "",
+      location: rep?.team || "",
+    });
+  };
+
+  const handlePreviewRepChange = (repId) => {
+    if (!onViewPreviewChange) return;
+    const rep = previewReps.find((entry) => entry.id === repId);
+    onViewPreviewChange({
+      mode: "user",
+      repId: rep?.id || "",
+      repName: rep?.name || "",
+      team: rep?.manager || "",
+      location: rep?.team || "",
+    });
+  };
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
@@ -28,6 +107,36 @@ export default function Navbar({
   useEffect(() => {
     if (!showNav) setMobileOpen(false);
   }, [showNav]);
+
+  useEffect(() => {
+    if (!previewDesktopOpen) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (!previewDesktopRef.current?.contains(event.target)) {
+        setPreviewDesktopOpen(false);
+      }
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setPreviewDesktopOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [previewDesktopOpen]);
+
+  const previewSummaryLabel =
+    previewMode === "manager"
+      ? viewPreview?.team || "Manager"
+      : previewMode === "user"
+        ? viewPreview?.repName || "User"
+        : "Live Admin";
 
   return (
     <header className="sticky top-0 z-50 px-4 pt-4 sm:px-6">
@@ -45,14 +154,6 @@ export default function Navbar({
               <div className="rounded-[22px] border border-slate-200 bg-white p-2 shadow-lg shadow-slate-950/10">
                 <img src="/ab-logo.png" className="h-8 w-8 object-contain" alt="AB" />
               </div>
-              <div className="min-w-0">
-                <p className="truncate font-display text-lg font-bold tracking-tight text-slate-950 sm:text-xl">
-                  AB Sales
-                </p>
-                <p className="truncate text-xs font-medium uppercase tracking-[0.22em] text-slate-500">
-                  Field Dashboard
-                </p>
-              </div>
             </Link>
           </div>
 
@@ -63,10 +164,12 @@ export default function Navbar({
                 {canViewPerformance ? <NavButton to="/performance">Performance</NavButton> : null}
                 <NavButton to="/leaderboard">Leaderboard</NavButton>
                 <NavButton to="/knocks">Knocks</NavButton>
-                <NavButton to="/coverage-map">Map</NavButton>
+                {canViewMap ? <NavButton to="/coverage-map">Map</NavButton> : null}
                 {canViewRoster ? <NavButton to="/roster">Roster</NavButton> : null}
                 {canViewOnboarding ? <NavButton to="/onboarding">Onboarding</NavButton> : null}
-                {isPrimarySuperAdmin ? <NavButton to="/settings">Settings</NavButton> : null}
+                {isPrimarySuperAdmin || isManager || isUser ? (
+                  <NavButton to="/settings">Settings</NavButton>
+                ) : null}
               </>
             ) : (
               <>
@@ -78,6 +181,73 @@ export default function Navbar({
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
+            {actualIsPrimarySuperAdmin ? (
+              <div ref={previewDesktopRef} className="relative hidden lg:block">
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm gap-2 rounded-full"
+                  onClick={() => setPreviewDesktopOpen((current) => !current)}
+                  aria-expanded={previewDesktopOpen}
+                >
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Preview
+                  </span>
+                  <span className="max-w-[10rem] truncate text-slate-900">{previewSummaryLabel}</span>
+                </button>
+                {previewDesktopOpen ? (
+                  <div className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-80 rounded-[24px] border border-slate-200/80 bg-white/95 p-4 shadow-[0_24px_56px_rgba(9,20,35,0.18)] backdrop-blur-xl">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      View Preview
+                    </p>
+                    <div className="mt-3 grid gap-3">
+                      <select
+                        className="select select-bordered select-sm w-full"
+                        value={previewMode}
+                        onChange={(event) => handlePreviewModeChange(event.target.value)}
+                      >
+                        <option value="admin">Live Admin</option>
+                        <option value="manager">Preview Manager</option>
+                        <option value="user">Preview User</option>
+                      </select>
+                      {previewMode === "manager" ? (
+                        <select
+                          className="select select-bordered select-sm w-full"
+                          value={viewPreview?.team || ""}
+                          onChange={(event) =>
+                            onViewPreviewChange?.({
+                              mode: "manager",
+                              team: event.target.value,
+                            })
+                          }
+                        >
+                          <option value="">Select team</option>
+                          {managerOptions.map((team) => (
+                            <option key={team} value={team}>
+                              {team}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+                      {previewMode === "user" ? (
+                        <select
+                          className="select select-bordered select-sm w-full"
+                          value={viewPreview?.repId || ""}
+                          onChange={(event) => handlePreviewRepChange(event.target.value)}
+                        >
+                          <option value="">Select rep</option>
+                          {previewReps.map((rep) => (
+                            <option key={rep.id} value={rep.id}>
+                              {rep.name || "Unnamed rep"}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             {isDemo && !isAdmin ? (
               <span className="badge hidden sm:inline-flex border-lime-200 bg-lime-100/80 text-slate-900">
                 Demo Mode
@@ -133,10 +303,61 @@ export default function Navbar({
             id="mobile-nav"
             className={clsx(
               "overflow-hidden border-t border-white/50 bg-white/68 transition-[max-height,opacity] duration-300 lg:hidden",
-              mobileOpen ? "max-h-[420px] opacity-100" : "max-h-0 opacity-0"
+              mobileOpen ? "max-h-[560px] opacity-100" : "max-h-0 opacity-0"
             )}
           >
             <div className="grid gap-2 px-3 py-3 sm:grid-cols-2 sm:px-4">
+              {actualIsPrimarySuperAdmin ? (
+                <div className="sm:col-span-2 rounded-[20px] border border-slate-200/80 bg-slate-50/90 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    View Preview
+                  </p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <select
+                      className="select select-bordered select-sm w-full"
+                      value={previewMode}
+                      onChange={(event) => handlePreviewModeChange(event.target.value)}
+                    >
+                      <option value="admin">Live Admin</option>
+                      <option value="manager">Preview Manager</option>
+                      <option value="user">Preview User</option>
+                    </select>
+                    {previewMode === "manager" ? (
+                      <select
+                        className="select select-bordered select-sm w-full"
+                        value={viewPreview?.team || ""}
+                        onChange={(event) =>
+                          onViewPreviewChange?.({
+                            mode: "manager",
+                            team: event.target.value,
+                          })
+                        }
+                      >
+                        <option value="">Select team</option>
+                        {managerOptions.map((team) => (
+                          <option key={team} value={team}>
+                            {team}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                    {previewMode === "user" ? (
+                      <select
+                        className="select select-bordered select-sm w-full sm:col-span-2"
+                        value={viewPreview?.repId || ""}
+                        onChange={(event) => handlePreviewRepChange(event.target.value)}
+                      >
+                        <option value="">Select rep</option>
+                        {previewReps.map((rep) => (
+                          <option key={rep.id} value={rep.id}>
+                            {rep.name || "Unnamed rep"}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
               <NavButton to="/sales" onClick={() => setMobileOpen(false)}>
                 Sales
               </NavButton>
@@ -151,9 +372,11 @@ export default function Navbar({
               <NavButton to="/knocks" onClick={() => setMobileOpen(false)}>
                 Knocks
               </NavButton>
-              <NavButton to="/coverage-map" onClick={() => setMobileOpen(false)}>
-                Map
-              </NavButton>
+              {canViewMap ? (
+                <NavButton to="/coverage-map" onClick={() => setMobileOpen(false)}>
+                  Map
+                </NavButton>
+              ) : null}
               {canViewRoster ? (
                 <NavButton to="/roster" onClick={() => setMobileOpen(false)}>
                   Roster
@@ -164,7 +387,7 @@ export default function Navbar({
                   Onboarding
                 </NavButton>
               ) : null}
-              {isPrimarySuperAdmin ? (
+              {isPrimarySuperAdmin || isManager || isUser ? (
                 <NavButton to="/settings" onClick={() => setMobileOpen(false)}>
                   Settings
                 </NavButton>

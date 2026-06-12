@@ -3,7 +3,7 @@ import { addDoc, collection, doc, onSnapshot, serverTimestamp, updateDoc } from 
 import { db } from "../lib/firebase";
 import { useAuthRole } from "../hooks/useAuth";
 import GoGoFormatterLauncher from "../components/GoGoFormatterLauncher.jsx";
-import { PageHero, PageShell } from "../components/PageLayout.jsx";
+import { LoadingPanel, PageHero, PageShell } from "../components/PageLayout.jsx";
 import { gogoFormatterAllowlist, isEmailAllowed } from "../lib/access.js";
 import { buildAccessScope } from "../lib/accessScope.js";
 
@@ -195,7 +195,7 @@ export default function OnboardingPage() {
   const { user, isAdmin, isManager, permissions, loading: authLoading, profile } = authState;
   const scope = buildAccessScope(authState);
   const canEditOnboarding = (isAdmin && permissions.canEditOnboarding) || isManager;
-  const canUseGoGoFormatter = isEmailAllowed(gogoFormatterAllowlist, user?.email);
+  const canUseGoGoFormatter = isAdmin && isEmailAllowed(gogoFormatterAllowlist, user?.email);
   const [roster, setRoster] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState(emailTemplates[0].key);
@@ -379,7 +379,7 @@ export default function OnboardingPage() {
   if (authLoading) {
     return (
       <PageShell>
-        <div className="surface-panel px-5 py-8 text-sm text-slate-600">Loading...</div>
+        <LoadingPanel label="Loading onboarding" detail="Checking onboarding access." />
       </PageShell>
     );
   }
@@ -477,35 +477,37 @@ export default function OnboardingPage() {
           </div>
         ) : null}
 
-        <div className="grid gap-6 md:grid-cols-2">
-          {sections.map((section) => (
-            <div
-              key={section.title}
-              className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm"
-            >
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
-                  {section.title}
-                </h2>
-                <div className="h-1 w-12 rounded-full bg-gradient-to-r from-slate-200 to-slate-300" />
+        {isManager ? null : (
+          <div className="grid gap-6 md:grid-cols-2">
+            {sections.map((section) => (
+              <div
+                key={section.title}
+                className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm"
+              >
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
+                    {section.title}
+                  </h2>
+                  <div className="h-1 w-12 rounded-full bg-gradient-to-r from-slate-200 to-slate-300" />
+                </div>
+                <div className="flex flex-col gap-3">
+                  {section.buttons.map((btn) => (
+                    <a
+                      key={btn.label}
+                      href={btn.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`btn mx-auto h-12 w-64 items-center justify-center text-center rounded-full border-0 text-sm font-semibold shadow ${btn.colorClass}`}
+                      role="button"
+                    >
+                      {btn.label}
+                    </a>
+                  ))}
+                </div>
               </div>
-              <div className="flex flex-col gap-3">
-                {section.buttons.map((btn) => (
-                  <a
-                    key={btn.label}
-                    href={btn.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`btn mx-auto h-12 w-64 items-center justify-center text-center rounded-full border-0 text-sm font-semibold shadow ${btn.colorClass}`}
-                    role="button"
-                  >
-                    {btn.label}
-                  </a>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between">

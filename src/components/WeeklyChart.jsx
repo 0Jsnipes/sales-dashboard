@@ -12,6 +12,7 @@ import { collection, onSnapshot, query } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useDemoMode } from "../hooks/useDemoMode";
 import { getDemoWeekRows } from "../demo/demoData.js";
+import { buildWeeklySalesRows, normalizeSalesUploadOrder } from "../lib/weeklySalesUploads.js";
 import { SectionIntro } from "./PageLayout.jsx";
 
 const CHART_PRIMARY = "#10203a";
@@ -37,7 +38,32 @@ export default function WeeklyChart({
   repNameFilter = "",
 }) {
   const isDemo = useDemoMode();
-  const [rows, setRows] = useState(null);
+  const [rawRows, setRawRows] = useState(null);
+  const [salesUploadOrders, setSalesUploadOrders] = useState([]);
+
+  const rows = useMemo(() => {
+    if (!rawRows) return null;
+
+    const sourceRows =
+      metricKey === "sales"
+        ? buildWeeklySalesRows(rawRows, salesUploadOrders, weekISO)
+        : rawRows;
+
+    return sourceRows
+      .map((row) => {
+        const values =
+          Array.isArray(row[metricKey]) && row[metricKey].length === 7
+            ? row[metricKey]
+            : Array(7).fill(0);
+        const total = values.reduce((sum, value) => sum + clampNum(value), 0);
+        return {
+          id: row.id,
+          name: row.name || "Unnamed",
+          total,
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  }, [metricKey, rawRows, salesUploadOrders, weekISO]);
 
   useEffect(() => {
     if (isDemo) {
@@ -86,15 +112,7 @@ export default function WeeklyChart({
         if (!existing || row.total > existing.total) deduped.set(key, row);
       });
 
-      const data = Array.from(deduped.values())
-        .map((row) => ({
-          id: row.id,
-          name: row.name || "Unnamed",
-          total: row.total,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-
-      setRows(data);
+      setRawRows(Array.from(deduped.values()));
       return undefined;
     }
 
@@ -148,17 +166,37 @@ export default function WeeklyChart({
         if (!existing || row.total > existing.total) deduped.set(key, row);
       });
 
-      const data = Array.from(deduped.values())
-        .map((row) => ({
-          id: row.id,
-          name: row.name || "Unnamed",
-          total: row.total,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-
-      setRows(data);
+      setRawRows(Array.from(deduped.values()));
     });
   }, [base, isDemo, managerFilter, metricKey, repNameFilter, teamFilter, weekISO]);
+
+  useEffect(() => {
+    if (isDemo || metricKey !== "sales") {
+      setSalesUploadOrders([]);
+      return undefined;
+    }
+
+    const unsubAtt = onSnapshot(collection(db, "salesUploads", "att sales", "orders"), (snap) => {
+      setSalesUploadOrders((current) => {
+        const tfiber = current.filter((order) => order.provider !== "ATT");
+        return [...tfiber, ...snap.docs.map((docSnap) => normalizeSalesUploadOrder("att sales", docSnap))];
+      });
+    });
+    const unsubTFiber = onSnapshot(
+      collection(db, "salesUploads", "t-fiber sales", "orders"),
+      (snap) => {
+        setSalesUploadOrders((current) => {
+          const att = current.filter((order) => order.provider === "ATT");
+          return [...att, ...snap.docs.map((docSnap) => normalizeSalesUploadOrder("t-fiber sales", docSnap))];
+        });
+      }
+    );
+
+    return () => {
+      unsubAtt();
+      unsubTFiber();
+    };
+  }, [isDemo, metricKey]);
 
   const maxY = useMemo(() => {
     if (!rows || rows.length === 0) return 5;

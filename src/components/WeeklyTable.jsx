@@ -6,14 +6,19 @@ import {
   doc,
   onSnapshot,
   collection,
+  documentId,
+  query,
   setDoc,
   getDocs,
   runTransaction,
   serverTimestamp,
+  where,
+  writeBatch,
 } from "firebase/firestore";
 import * as XLSX from "xlsx";
 import { db } from "../lib/firebase";
 import { DAYS, prevWeekISO } from "../utils/weeks.js";
+import { buildWeeklySalesRows, normalizeSalesUploadOrder } from "../lib/weeklySalesUploads.js";
 import AddRepsModal from "./AddRepsModal";
 import EditRepsModal from "./EditRepsModal";
 import Modal from "./Modal";
@@ -179,7 +184,8 @@ export default function WeeklyTable({
 }) {
   const { user, isSuperAdmin } = useAuthRole();
   const isDemo = useDemoMode();
-  const [rows, setRows] = useState([]);
+  const [rawRows, setRawRows] = useState([]);
+  const [salesUploadOrders, setSalesUploadOrders] = useState([]);
   const [openAdd, setOpenAdd] = useState(false);
   const [repToEdit, setRepToEdit] = useState(null); // <-- per-rep edit
   const [highlightedRepId, setHighlightedRepId] = useState(null);
@@ -187,9 +193,19 @@ export default function WeeklyTable({
   const [importStatus, setImportStatus] = useState("");
   const [activeDropzone, setActiveDropzone] = useState("");
   const [mobileSalesUploadOpen, setMobileSalesUploadOpen] = useState(false);
-  const attFileInputRef = useRef(null);
-  const tmobileFileInputRef = useRef(null);
+  const [dbUploadDatesOpen, setDbUploadDatesOpen] = useState(false);
+  const [dbUploadDateInput, setDbUploadDateInput] = useState("");
+  const [dbUploadDateIds, setDbUploadDateIds] = useState([]);
+  const attDbFileInputRef = useRef(null);
+  const tFiberDbFileInputRef = useRef(null);
   const knockFileInputRef = useRef(null);
+  const rows = useMemo(
+    () =>
+      metricKey === "sales"
+        ? buildWeeklySalesRows(rawRows, salesUploadOrders, weekISO)
+        : rawRows,
+    [metricKey, rawRows, salesUploadOrders, weekISO]
+  );
   const showHeaderActions = canEdit || rows.length > 0;
   const canManageReps = canEdit || canEditReps;
 
@@ -245,7 +261,7 @@ export default function WeeklyTable({
           })
         );
 
-      setRows(demoRows);
+      setRawRows(demoRows);
       return undefined;
     }
 
@@ -364,7 +380,7 @@ export default function WeeklyTable({
           })
         );
 
-        if (!cancelled) setRows(merged);
+        if (!cancelled) setRawRows(merged);
       }
     );
 
@@ -373,6 +389,38 @@ export default function WeeklyTable({
       unsub();
     };
   }, [base, weekISO, teamFilter, managerFilter, repNameFilter, metricKey, isDemo]);
+
+  useEffect(() => {
+    if (isDemo || metricKey !== "sales") {
+      setSalesUploadOrders([]);
+      return undefined;
+    }
+
+    const unsubAtt = onSnapshot(
+      collection(db, "salesUploads", ATT_DB_GROUP, "orders"),
+      (snap) => {
+        setSalesUploadOrders((current) => {
+          const tfiber = current.filter((order) => order.provider !== "ATT");
+          return [...tfiber, ...snap.docs.map((docSnap) => normalizeSalesUploadOrder(ATT_DB_GROUP, docSnap))];
+        });
+      }
+    );
+
+    const unsubTFiber = onSnapshot(
+      collection(db, "salesUploads", T_FIBER_DB_GROUP, "orders"),
+      (snap) => {
+        setSalesUploadOrders((current) => {
+          const att = current.filter((order) => order.provider === "ATT");
+          return [...att, ...snap.docs.map((docSnap) => normalizeSalesUploadOrder(T_FIBER_DB_GROUP, docSnap))];
+        });
+      }
+    );
+
+    return () => {
+      unsubAtt();
+      unsubTFiber();
+    };
+  }, [isDemo, metricKey]);
 
   // Totals
   const colTotals = useMemo(() => {
@@ -754,107 +802,239 @@ export default function WeeklyTable({
     URL.revokeObjectURL(url);
   };
 
-  const importSalesFile = async (file, importType) => {
+  const addDbUploadDate = () => {
+    if (!dbUploadDateInput) return;
+    setDbUploadDateIds((current) =>
+      Array.from(new Set([...current, dbUploadDateInput])).sort()
+    );
+    setDbUploadDateInput("");
+  };
+
+  const removeDbUploadDate = (dateId) => {
+    setDbUploadDateIds((current) => current.filter((item) => item !== dateId));
+  };
+
+  const importTFiberSalesToDb = async (file) => {
     if (!file) return;
 
     try {
       if (metricKey !== "sales") {
-        setImportStatus("ATT sales import is only available on the sales grid.");
+        setImportStatus("T-Fiber DB upload is only available on the sales grid.");
         return;
       }
 
-      setImportStatus("Reading sales file...");
+      setImportStatus("Reading T-Fiber sales file for DB upload...");
 
-      const targetDates = getImportTargetDates();
-      const targetWeekISO = toLocalISO(startOfLocalWeek(targetDates[0]));
+      const parsed = filterDbUploadByDates(
+        await parseTFiberSalesDbUpload(file),
+        dbUploadDateIds
+      );
 
-      if (weekISO !== targetWeekISO) {
-        setImportStatus(
-          `Import failed. This upload targets ${formatDateList(
-            targetDates
-          )}, which belongs to the week of ${targetWeekISO}.`
+      if (!parsed.orders.length) {
+        setImportStatus(getEmptyDbUploadMessage("T-Fiber", "Alt Order ID", parsed));
+        return;
+      }
+
+      const skippedMessage =
+        parsed.skippedRows.length > 0
+          ? ` Skipped ${parsed.skippedRows.length} rows with missing or invalid Alt Order ID.`
+          : "";
+      const duplicateMessage =
+        parsed.duplicateRows > 0
+          ? ` ${parsed.duplicateRows} duplicate Alt Order ID rows were collapsed to the last row in the file.`
+          : "";
+      const dateFilterMessage = getDbUploadDateFilterMessage(parsed);
+      const confirmed = window.confirm(
+        `Upsert ${parsed.orders.length} T-Fiber sales rows to salesUploads/${T_FIBER_DB_GROUP}/orders using Alt Order ID as the UID? Matching UIDs update; new UIDs create records.${dateFilterMessage}${skippedMessage}${duplicateMessage}`
+      );
+
+      if (!confirmed) {
+        setImportStatus("T-Fiber DB upload cancelled.");
+        return;
+      }
+
+      const existingOrdersById = await loadExistingOrdersMap(
+        T_FIBER_DB_GROUP,
+        parsed.orders.map((order) => order.altOrderId)
+      );
+
+      const operations = parsed.orders.map((order) => (batch) => {
+        const existingOrder = existingOrdersById.get(order.altOrderId);
+        const orderRef = doc(
+          db,
+          "salesUploads",
+          T_FIBER_DB_GROUP,
+          "orders",
+          order.altOrderId
         );
-        return;
-      }
 
-      const talliesByDate =
-        importType === "tmobile"
-          ? await tallyTMobileSalesByDates(file, targetDates)
-          : await tallyAttSalesByDates(file, targetDates);
-      const snap = await getDocs(collection(db, base, weekISO, "reps"));
-      const allReps = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .filter((rep) => !rep.deleted);
+        batch.set(
+          orderRef,
+          {
+            ...mergeLockedSalesAssignment(order, existingOrder, "tfiber"),
+            group: T_FIBER_DB_GROUP,
+            sourceFileName: file.name,
+            sourceSheetName: parsed.sheetName,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      });
 
-      let matchedCount = 0;
-      const unmatchedNames = [];
+      operations.push((batch) => {
+        const uploadLogRef = doc(
+          collection(db, "salesUploads", T_FIBER_DB_GROUP, "uploadLogs")
+        );
 
-      for (const targetDate of targetDates) {
-        const tally = talliesByDate[toDateString(targetDate)] || {};
-        const targetDayIndex = getDayIndexWithinWeek(targetDate, weekISO);
+        batch.set(uploadLogRef, {
+          type: "t_fiber_sales_db_upload",
+          group: T_FIBER_DB_GROUP,
+          fileName: file.name,
+          sheetName: parsed.sheetName,
+          rowsRead: parsed.totalRows,
+          rowsUploaded: parsed.orders.length,
+          rowsSkipped: parsed.skippedRows.length,
+          duplicateRows: parsed.duplicateRows,
+          selectedDateIds: parsed.selectedDateIds,
+          dateFilteredOutRows: parsed.dateFilteredOutRows,
+          uploadedAt: serverTimestamp(),
+          uploadedBy: {
+            uid: user?.uid || null,
+            email: user?.email || null,
+          },
+        });
+      });
 
-        for (const [salespersonName, salesCount] of Object.entries(tally)) {
-          const matchingRep = allReps.find(
-            (rep) => normalizeName(rep.name) === normalizeName(salespersonName)
-          );
-
-          if (!matchingRep) {
-            const unmatchedKey = normalizeName(salespersonName);
-            if (
-              unmatchedKey &&
-              !unmatchedNames.some((name) => normalizeName(name) === unmatchedKey)
-            ) {
-              unmatchedNames.push(salespersonName);
-            }
-            continue;
-          }
-
-          const sales = Array.isArray(matchingRep.sales)
-            ? [...matchingRep.sales]
-            : Array(7).fill(0);
-
-          sales[targetDayIndex] = clampNum(sales[targetDayIndex]) + salesCount;
-          matchingRep.sales = sales;
-
-          await setDoc(
-            doc(db, base, weekISO, "reps", matchingRep.id),
-            {
-              name: matchingRep.name || "",
-              email: matchingRep.email || "",
-              manager: matchingRep.manager || "",
-              team: matchingRep.team || "",
-              salesGoal: clampNum(matchingRep.salesGoal),
-              knocksGoal: clampNum(matchingRep.knocksGoal),
-              sales,
-            },
-            { merge: true }
-          );
-
-          matchedCount += 1;
-        }
-      }
+      await commitBatchOperations(operations);
 
       setImportStatus(
-        unmatchedNames.length > 0
-          ? `${importType === "tmobile" ? "T-Mobile" : "ATT"} import complete for ${
-              formatDayList(targetDates, weekISO)
-            }. Updated ${matchedCount} reps. Unmatched: ${unmatchedNames.join(
-              ", "
-            )}`
-          : `${importType === "tmobile" ? "T-Mobile" : "ATT"} import complete for ${
-              formatDayList(targetDates, weekISO)
-            }. Updated ${matchedCount} reps.`
+        `T-Fiber DB upload complete. Upserted ${parsed.orders.length} rows to ${T_FIBER_DB_GROUP}.${dateFilterMessage}${skippedMessage}${duplicateMessage}`
       );
     } catch (error) {
       console.error(error);
-      setImportStatus("Import failed. Check the console for details.");
+      setImportStatus(
+        error?.message || "T-Fiber DB upload failed. Check the console for details."
+      );
     }
   };
 
-  const handleSalesImport = async (event, importType) => {
+  const handleTFiberDbUpload = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    await importSalesFile(file, importType);
+    await importTFiberSalesToDb(file);
+    event.target.value = "";
+  };
+
+  const importAttSalesToDb = async (file) => {
+    if (!file) return;
+
+    try {
+      if (metricKey !== "sales") {
+        setImportStatus("ATT DB upload is only available on the sales grid.");
+        return;
+      }
+
+      setImportStatus("Reading ATT sales file for DB upload...");
+
+      const parsed = filterDbUploadByDates(
+        await parseAttSalesDbUpload(file),
+        dbUploadDateIds
+      );
+
+      if (!parsed.orders.length) {
+        setImportStatus(getEmptyDbUploadMessage("ATT", "OrderID", parsed));
+        return;
+      }
+
+      const skippedMessage =
+        parsed.skippedRows.length > 0
+          ? ` Skipped ${parsed.skippedRows.length} rows with missing or invalid OrderID.`
+          : "";
+      const duplicateMessage =
+        parsed.duplicateRows > 0
+          ? ` ${parsed.duplicateRows} duplicate OrderID rows were collapsed to the last row in the file.`
+          : "";
+      const dateFilterMessage = getDbUploadDateFilterMessage(parsed);
+      const confirmed = window.confirm(
+        `Upsert ${parsed.orders.length} ATT sales rows to salesUploads/${ATT_DB_GROUP}/orders using OrderID as the UID? Matching UIDs update; new UIDs create records.${dateFilterMessage}${skippedMessage}${duplicateMessage}`
+      );
+
+      if (!confirmed) {
+        setImportStatus("ATT DB upload cancelled.");
+        return;
+      }
+
+      const existingOrdersById = await loadExistingOrdersMap(
+        ATT_DB_GROUP,
+        parsed.orders.map((order) => order.orderId)
+      );
+
+      const operations = parsed.orders.map((order) => (batch) => {
+        const existingOrder = existingOrdersById.get(order.orderId);
+        const orderRef = doc(
+          db,
+          "salesUploads",
+          ATT_DB_GROUP,
+          "orders",
+          order.orderId
+        );
+
+        batch.set(
+          orderRef,
+          {
+            ...mergeLockedSalesAssignment(order, existingOrder, "att"),
+            group: ATT_DB_GROUP,
+            sourceFileName: file.name,
+            sourceSheetName: parsed.sheetName,
+            internetStatusUpdatedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      });
+
+      operations.push((batch) => {
+        const uploadLogRef = doc(
+          collection(db, "salesUploads", ATT_DB_GROUP, "uploadLogs")
+        );
+
+        batch.set(uploadLogRef, {
+          type: "att_sales_db_upload",
+          group: ATT_DB_GROUP,
+          fileName: file.name,
+          sheetName: parsed.sheetName,
+          rowsRead: parsed.totalRows,
+          rowsUploaded: parsed.orders.length,
+          rowsSkipped: parsed.skippedRows.length,
+          duplicateRows: parsed.duplicateRows,
+          totalSales: parsed.totalSales,
+          selectedDateIds: parsed.selectedDateIds,
+          dateFilteredOutRows: parsed.dateFilteredOutRows,
+          uploadedAt: serverTimestamp(),
+          uploadedBy: {
+            uid: user?.uid || null,
+            email: user?.email || null,
+          },
+        });
+      });
+
+      await commitBatchOperations(operations);
+
+      setImportStatus(
+        `ATT DB upload complete. Upserted ${parsed.orders.length} rows to ${ATT_DB_GROUP} with ${parsed.totalSales} counted sales.${dateFilterMessage}${skippedMessage}${duplicateMessage}`
+      );
+    } catch (error) {
+      console.error(error);
+      setImportStatus(
+        error?.message || "ATT DB upload failed. Check the console for details."
+      );
+    }
+  };
+
+  const handleAttDbUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await importAttSalesToDb(file);
     event.target.value = "";
   };
 
@@ -1023,20 +1203,20 @@ export default function WeeklyTable({
                   className="rounded-2xl border border-slate-200/80 bg-white/92 px-3 py-2 text-[11px] font-semibold text-slate-900 shadow-[0_14px_28px_rgba(9,20,35,0.12)] backdrop-blur"
                   onClick={() => {
                     setMobileSalesUploadOpen(false);
-                    attFileInputRef.current?.click();
+                    attDbFileInputRef.current?.click();
                   }}
                 >
-                  ATT Sales
+                  ATT DB
                 </button>
                 <button
                   type="button"
                   className="rounded-2xl border border-slate-200/80 bg-white/92 px-3 py-2 text-[11px] font-semibold text-slate-900 shadow-[0_14px_28px_rgba(9,20,35,0.12)] backdrop-blur"
                   onClick={() => {
                     setMobileSalesUploadOpen(false);
-                    tmobileFileInputRef.current?.click();
+                    tFiberDbFileInputRef.current?.click();
                   }}
                 >
-                  T-Fiber Sales
+                  T-Fiber DB
                 </button>
               </div>
 
@@ -1135,38 +1315,122 @@ export default function WeeklyTable({
             </button>
             {canEdit && metricKey === "sales" && (
               <>
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => setDbUploadDatesOpen((current) => !current)}
+                    aria-expanded={dbUploadDatesOpen}
+                  >
+                    DB Dates{dbUploadDateIds.length ? ` (${dbUploadDateIds.length})` : ""}
+                  </button>
+
+                  {dbUploadDatesOpen ? (
+                    <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-[min(88vw,340px)] rounded-[18px] border border-slate-200 bg-white p-3 text-sm shadow-[0_18px_42px_rgba(15,23,42,0.16)]">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="date"
+                          className="input input-bordered input-sm h-9 min-h-9 min-w-0 flex-1"
+                          value={dbUploadDateInput}
+                          onChange={(event) => setDbUploadDateInput(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              addDbUploadDate();
+                            }
+                          }}
+                          aria-label="DB upload order date"
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={addDbUploadDate}
+                          disabled={!dbUploadDateInput}
+                        >
+                          Add
+                        </button>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {dbUploadDateIds.length > 0 ? (
+                          dbUploadDateIds.map((dateId) => (
+                            <button
+                              key={dateId}
+                              type="button"
+                              className="inline-flex h-8 items-center gap-1 rounded-full border border-slate-300 bg-slate-50 px-2.5 text-[11px] font-semibold text-slate-800"
+                              onClick={() => removeDbUploadDate(dateId)}
+                              title="Remove DB upload date"
+                            >
+                              <span>{dateId}</span>
+                              <span aria-hidden="true">x</span>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                            No dates selected. DB uploads will use every valid row in the file.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-3 flex justify-end gap-2">
+                        {dbUploadDateIds.length > 0 ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => setDbUploadDateIds([])}
+                          >
+                            Clear
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => setDbUploadDatesOpen(false)}
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
                 <input
-                  ref={attFileInputRef}
+                  ref={attDbFileInputRef}
                   type="file"
                   accept=".xlsx,.xls,.csv"
                   className="hidden"
-                  onChange={(event) => handleSalesImport(event, "att")}
+                  onChange={handleAttDbUpload}
                 />
                 <input
-                  ref={tmobileFileInputRef}
+                  ref={tFiberDbFileInputRef}
                   type="file"
                   accept=".xlsx,.xls,.csv"
                   className="hidden"
-                  onChange={(event) => handleSalesImport(event, "tmobile")}
+                  onChange={handleTFiberDbUpload}
                 />
                 <div className="hidden items-center gap-2 md:flex">
                   <UploadChip
-                    title="ATT Sales"
-                    active={activeDropzone === "att-sales"}
-                    onClick={() => attFileInputRef.current?.click()}
-                    onKeyDown={(event) => openFilePickerOnKey(event, attFileInputRef)}
-                    {...getDropzoneHandlers("att-sales", (file) =>
-                      importSalesFile(file, "att")
-                    )}
+                    title="ATT DB"
+                    active={activeDropzone === "att-db-sales"}
+                    onClick={() => {
+                      setDbUploadDatesOpen(false);
+                      attDbFileInputRef.current?.click();
+                    }}
+                    onKeyDown={(event) =>
+                      openFilePickerOnKey(event, attDbFileInputRef)
+                    }
+                    {...getDropzoneHandlers("att-db-sales", importAttSalesToDb)}
                   />
                   <UploadChip
-                    title="T-Fiber"
-                    active={activeDropzone === "tmobile-sales"}
-                    onClick={() => tmobileFileInputRef.current?.click()}
-                    onKeyDown={(event) => openFilePickerOnKey(event, tmobileFileInputRef)}
-                    {...getDropzoneHandlers("tmobile-sales", (file) =>
-                      importSalesFile(file, "tmobile")
-                    )}
+                    title="T-Fiber DB"
+                    active={activeDropzone === "tfiber-db-sales"}
+                    onClick={() => {
+                      setDbUploadDatesOpen(false);
+                      tFiberDbFileInputRef.current?.click();
+                    }}
+                    onKeyDown={(event) =>
+                      openFilePickerOnKey(event, tFiberDbFileInputRef)
+                    }
+                    {...getDropzoneHandlers("tfiber-db-sales", importTFiberSalesToDb)}
                   />
                 </div>
               </>
@@ -1286,7 +1550,7 @@ export default function WeeklyTable({
 
                       {DAYS.map((d, i) => (
                         <td key={d} className="px-1 text-center">
-                          {canEdit ? (
+                          {canEdit && metricKey !== "sales" ? (
                             <input
                               key={`${r.id}-${weekISO}-${i}-${arr[i] ?? 0}`}
                               type="number"
@@ -1481,63 +1745,405 @@ export default function WeeklyTable({
   );
 }
 
-async function tallyAttSalesByDates(file, targetDates) {
-  const data = await file.arrayBuffer();
-  const workbook = XLSX.read(data, {
+const ATT_DB_GROUP = "att sales";
+const T_FIBER_DB_GROUP = "t-fiber sales";
+const ATT_SALE_PACKAGE_COLUMNS = [
+  "Video_Package",
+  "Internet_Package",
+  "Wireless_Package",
+];
+const ATT_DATE_COLUMNS = new Set([
+  "OrderDate",
+  "Video_ActiveDate",
+  "Video_InstallDate",
+  "Video_CancelDate",
+  "Internet_ActiveDate",
+  "Internet_InstallDate",
+  "Internet_CancelDate",
+  "Voice_ActiveDate",
+  "Voice_InstallDate",
+  "Voice_CancelDate",
+  "Wireless_ActiveDate",
+  "Wireless_CancelDate",
+  "HomeAutomation_ActiveDate",
+  "HomeAutomation_CancelDate",
+  "HomeAutomation_InstallDate",
+]);
+const T_FIBER_DATE_COLUMNS = new Set([
+  "Order Month",
+  "Order Date",
+  "Pre-Order Conversion Date",
+  "Track Until Date",
+  "Est. Installation Date",
+  "Order Cancellation Date",
+  "Activation Date",
+  "Termination Request Date",
+  "Deactivation Date",
+  "Eligibility Date",
+]);
+
+async function parseAttSalesDbUpload(file) {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, {
     type: "array",
     cellDates: true,
   });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const sheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json(sheet, {
     defval: "",
   });
-  const talliesByDate = createEmptyTallies(targetDates);
-  const targetDateSet = new Set(Object.keys(talliesByDate));
+  const ordersByOrderId = new Map();
+  const skippedRows = [];
 
-  rows.forEach((row) => {
-    const orderDate = normalizeDate(row.OrderDate);
-    const salesperson = String(row.SalespersonName || "").trim();
+  rows.forEach((row, index) => {
+    const normalizedRow = normalizeAttDbRow(row);
+    const orderId = cleanCell(normalizedRow.rawData.OrderID);
 
-    if (!salesperson || !targetDateSet.has(orderDate)) return;
+    if (!orderId) {
+      skippedRows.push({
+        rowNumber: index + 2,
+        reason: "Missing OrderID",
+      });
+      return;
+    }
 
-    let salesCount = 0;
+    if (orderId.includes("/")) {
+      skippedRows.push({
+        rowNumber: index + 2,
+        reason: "OrderID contains / and cannot be used as a Firestore document ID",
+        orderId,
+      });
+      return;
+    }
 
-    if (hasValue(row.Internet_Package)) salesCount += 1;
-    if (hasValue(row.Video_Package)) salesCount += 1;
-    if (hasValue(row.Voice_Package)) salesCount += 1;
-    if (salesCount === 0) return;
+    const saleCount = ATT_SALE_PACKAGE_COLUMNS.reduce((total, columnName) => {
+      return total + (hasValue(normalizedRow.rawData[columnName]) ? 1 : 0);
+    }, 0);
 
-    const tally = talliesByDate[orderDate];
-    tally[salesperson] = (tally[salesperson] || 0) + salesCount;
+    ordersByOrderId.set(orderId, {
+      uid: orderId,
+      orderId,
+      saleCount,
+      countedPackages: Object.fromEntries(
+        ATT_SALE_PACKAGE_COLUMNS.map((columnName) => [
+          columnName,
+          hasValue(normalizedRow.rawData[columnName]),
+        ])
+      ),
+      salespersonId: cleanCell(normalizedRow.rawData.SalespersonID),
+      salespersonName: cleanCell(normalizedRow.rawData.SalespersonName),
+      repName: cleanCell(normalizedRow.rawData.SalespersonName),
+      agentManager: cleanCell(normalizedRow.rawData.AgentManager),
+      manager: cleanCell(normalizedRow.rawData.AgentManager),
+      campaign: cleanCell(normalizedRow.rawData.Campaign),
+      orderDate: normalizeDbDate(row.OrderDate),
+      orderDateId: normalizeDbDateId(row.OrderDate),
+      internetCurrentStatus: cleanCell(
+        normalizedRow.rawData.Internet_CurrentStatus
+      ),
+      internetInstallDate: normalizeDbDate(row.Internet_InstallDate),
+      internetInstallDateId: normalizeDbDateId(row.Internet_InstallDate),
+      rawData: normalizedRow.rawData,
+      data: normalizedRow.data,
+    });
   });
 
-  return talliesByDate;
+  const orders = Array.from(ordersByOrderId.values());
+
+  return {
+    sheetName,
+    totalRows: rows.length,
+    orders,
+    skippedRows,
+    duplicateRows: rows.length - skippedRows.length - orders.length,
+    totalSales: orders.reduce((total, order) => total + order.saleCount, 0),
+  };
 }
 
-async function tallyTMobileSalesByDates(file, targetDates) {
-  const data = await file.arrayBuffer();
-  const workbook = XLSX.read(data, {
+function normalizeAttDbRow(row) {
+  const rawData = {};
+  const data = {};
+
+  Object.entries(row).forEach(([key, value]) => {
+    const cleanKey = cleanFieldName(key);
+    if (!cleanKey) return;
+
+    const normalizedValue = ATT_DATE_COLUMNS.has(cleanKey)
+      ? normalizeDbDate(value) || ""
+      : value ?? "";
+
+    rawData[cleanKey] = normalizedValue;
+    data[toCamelCase(cleanKey)] = normalizedValue;
+  });
+
+  return { rawData, data };
+}
+
+async function parseTFiberSalesDbUpload(file) {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, {
     type: "array",
     cellDates: true,
   });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const sheetName = workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json(sheet, {
     defval: "",
   });
-  const talliesByDate = createEmptyTallies(targetDates);
-  const targetDateSet = new Set(Object.keys(talliesByDate));
+  const ordersByAltId = new Map();
+  const skippedRows = [];
 
-  rows.forEach((row) => {
-    const orderDate = normalizeDate(row["Order Date"]);
-    const dealerName = String(row.dealername || "").trim();
+  rows.forEach((row, index) => {
+    const normalizedRow = normalizeTFiberDbRow(row);
+    const altOrderId = cleanCell(normalizedRow.rawData["Alt Order ID"]);
 
-    if (!dealerName || !targetDateSet.has(orderDate)) return;
+    if (!altOrderId) {
+      skippedRows.push({
+        rowNumber: index + 2,
+        reason: "Missing Alt Order ID",
+      });
+      return;
+    }
 
-    const tally = talliesByDate[orderDate];
-    tally[dealerName] = (tally[dealerName] || 0) + 1;
+    if (altOrderId.includes("/")) {
+      skippedRows.push({
+        rowNumber: index + 2,
+        reason: "Alt Order ID contains / and cannot be used as a Firestore document ID",
+        altOrderId,
+      });
+      return;
+    }
+
+    ordersByAltId.set(altOrderId, {
+      uid: altOrderId,
+      altOrderId,
+      orderId: cleanCell(normalizedRow.rawData["Order #"]),
+      repId: cleanCell(normalizedRow.rawData["Rep ID"]),
+      repName: cleanCell(normalizedRow.rawData.dealername),
+      manager: cleanCell(normalizedRow.rawData.Manager),
+      accountStatus: cleanCell(normalizedRow.rawData["Account Status"]),
+      orderDate: normalizeDbDate(row["Order Date"]),
+      orderDateId: normalizeDbDateId(row["Order Date"]),
+      rawData: normalizedRow.rawData,
+      data: normalizedRow.data,
+    });
   });
 
-  return talliesByDate;
+  return {
+    sheetName,
+    totalRows: rows.length,
+    orders: Array.from(ordersByAltId.values()),
+    skippedRows,
+    duplicateRows: rows.length - skippedRows.length - ordersByAltId.size,
+  };
+}
+
+function normalizeTFiberDbRow(row) {
+  const rawData = {};
+  const data = {};
+
+  Object.entries(row).forEach(([key, value]) => {
+    const cleanKey = cleanFieldName(key);
+    if (!cleanKey) return;
+
+    const normalizedValue = T_FIBER_DATE_COLUMNS.has(cleanKey)
+      ? normalizeDbDate(value) || ""
+      : value ?? "";
+
+    rawData[cleanKey] = normalizedValue;
+    data[toCamelCase(cleanKey)] = normalizedValue;
+  });
+
+  return { rawData, data };
+}
+
+function filterDbUploadByDates(parsed, selectedDateIds = []) {
+  const cleanDateIds = selectedDateIds.filter(Boolean);
+
+  if (!cleanDateIds.length) {
+    return {
+      ...parsed,
+      selectedDateIds: [],
+      dateFilteredOutRows: 0,
+    };
+  }
+
+  const selectedDateSet = new Set(cleanDateIds);
+  const orders = parsed.orders.filter((order) =>
+    selectedDateSet.has(order.orderDateId)
+  );
+
+  return {
+    ...parsed,
+    orders,
+    selectedDateIds: cleanDateIds,
+    dateFilteredOutRows: parsed.orders.length - orders.length,
+    totalSales:
+      "totalSales" in parsed
+        ? orders.reduce((total, order) => total + order.saleCount, 0)
+        : parsed.totalSales,
+  };
+}
+
+function getDbUploadDateFilterMessage(parsed) {
+  if (!parsed.selectedDateIds?.length) return "";
+
+  return ` Date filter: ${parsed.selectedDateIds.join(", ")}. Filtered out ${parsed.dateFilteredOutRows} valid rows from other dates.`;
+}
+
+function getEmptyDbUploadMessage(label, uidColumnName, parsed) {
+  if (parsed.selectedDateIds?.length) {
+    return `${label} DB upload failed. No valid rows matched selected order dates: ${parsed.selectedDateIds.join(
+      ", "
+    )}.`;
+  }
+
+  return `${label} DB upload failed. No valid rows had a ${uidColumnName}.`;
+}
+
+function cleanFieldName(value) {
+  return cleanCell(value).replace(/\s+/g, " ");
+}
+
+function toCamelCase(value) {
+  return cleanFieldName(value)
+    .replace(/[#.]/g, "")
+    .replace(/[^a-zA-Z0-9]+(.)/g, (_, chr) => chr.toUpperCase())
+    .replace(/^[A-Z]/, (chr) => chr.toLowerCase());
+}
+
+function normalizeDbDate(value) {
+  if (!value) return null;
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+
+  if (typeof value === "number") {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (!parsed) return null;
+
+    return new Date(
+      parsed.y,
+      parsed.m - 1,
+      parsed.d,
+      parsed.H || 0,
+      parsed.M || 0,
+      parsed.S || 0
+    ).toISOString();
+  }
+
+  const parsedDate = new Date(String(value).trim());
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate.toISOString();
+}
+
+function normalizeDbDateId(value) {
+  const iso = normalizeDbDate(value);
+  return iso ? iso.slice(0, 10) : "";
+}
+
+async function commitBatchOperations(operations, initialChunkSize = 75) {
+  let index = 0;
+  let chunkSize = initialChunkSize;
+
+  while (index < operations.length) {
+    const batch = writeBatch(db);
+    const chunk = operations.slice(index, index + chunkSize);
+
+    chunk.forEach((operation) => {
+      operation(batch);
+    });
+
+    try {
+      await batch.commit();
+      index += chunk.length;
+    } catch (error) {
+      const message = String(error?.message || error || "");
+      const canRetrySmaller =
+        chunkSize > 1 &&
+        /transaction too big|request.*too large|maximum.*size|too many writes/i.test(
+          message
+        );
+
+      if (!canRetrySmaller) {
+        throw error;
+      }
+
+      chunkSize = Math.max(1, Math.floor(chunkSize / 2));
+    }
+  }
+}
+
+async function loadExistingOrdersMap(groupId, ids) {
+  const uniqueIds = Array.from(
+    new Set(
+      (ids || [])
+        .map((value) => cleanCell(value))
+        .filter(Boolean)
+    )
+  );
+
+  if (!uniqueIds.length) {
+    return new Map();
+  }
+
+  const ordersRef = collection(db, "salesUploads", groupId, "orders");
+  const existingOrders = new Map();
+
+  for (let index = 0; index < uniqueIds.length; index += 10) {
+    const chunk = uniqueIds.slice(index, index + 10);
+    const snap = await getDocs(query(ordersRef, where(documentId(), "in", chunk)));
+    snap.forEach((docSnap) => {
+      existingOrders.set(docSnap.id, docSnap.data());
+    });
+  }
+
+  return existingOrders;
+}
+
+function mergeLockedSalesAssignment(order, existingOrder, provider) {
+  if (!existingOrder?.salespersonLocked) {
+    return order;
+  }
+
+  if (provider === "att") {
+    return {
+      ...order,
+      repName: cleanCell(existingOrder.repName) || order.repName,
+      manager: cleanCell(existingOrder.manager) || order.manager,
+      salespersonName:
+        cleanCell(existingOrder.salespersonName) ||
+        cleanCell(existingOrder.repName) ||
+        order.salespersonName,
+      agentManager:
+        cleanCell(existingOrder.agentManager) ||
+        cleanCell(existingOrder.manager) ||
+        order.agentManager,
+      salespersonId: cleanCell(existingOrder.salespersonId) || order.salespersonId,
+      salespersonLocked: true,
+      ...(existingOrder.salespersonLockedAt
+        ? { salespersonLockedAt: existingOrder.salespersonLockedAt }
+        : {}),
+      ...(existingOrder.salespersonLockedBy
+        ? { salespersonLockedBy: existingOrder.salespersonLockedBy }
+        : {}),
+    };
+  }
+
+  return {
+    ...order,
+    repName: cleanCell(existingOrder.repName) || order.repName,
+    manager: cleanCell(existingOrder.manager) || order.manager,
+    repId: cleanCell(existingOrder.repId) || order.repId,
+    salespersonLocked: true,
+    ...(existingOrder.salespersonLockedAt
+      ? { salespersonLockedAt: existingOrder.salespersonLockedAt }
+      : {}),
+    ...(existingOrder.salespersonLockedBy
+      ? { salespersonLockedBy: existingOrder.salespersonLockedBy }
+      : {}),
+  };
 }
 
 async function parseKnockReportByDate(file, allowedDateIds = []) {
@@ -1604,40 +2210,17 @@ async function parseKnockReportByDate(file, allowedDateIds = []) {
   };
 }
 
-function hasValue(value) {
-  return value !== undefined && value !== null && String(value).trim() !== "";
-}
-
 function cleanCell(value) {
   return String(value ?? "").trim();
+}
+
+function hasValue(value) {
+  return value !== undefined && value !== null && String(value).trim() !== "";
 }
 
 function safePositiveNumber(value, fallback = 1) {
   const num = Number(value);
   return Number.isFinite(num) && num > 0 ? num : fallback;
-}
-
-function normalizeDate(value) {
-  if (!value) return "";
-
-  if (value instanceof Date) {
-    return toDateString(value);
-  }
-
-  const parsedDate = new Date(String(value).trim());
-
-  if (!Number.isNaN(parsedDate.getTime())) {
-    return toDateString(parsedDate);
-  }
-
-  return String(value).trim();
-}
-
-function normalizeName(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
 }
 
 function normalizeRepName(value) {
@@ -1655,10 +2238,6 @@ function normalizeRepName(value) {
 
 function getRepMatchKey(value) {
   return normalizeRepName(value);
-}
-
-function toDateString(date) {
-  return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
 }
 
 function formatDateId(date) {
@@ -1684,10 +2263,6 @@ function parseDispositionDate(value) {
   }
 
   return null;
-}
-
-function createEmptyTallies(targetDates) {
-  return Object.fromEntries(targetDates.map((date) => [toDateString(date), {}]));
 }
 
 function startOfLocalWeek(date) {

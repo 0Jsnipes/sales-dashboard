@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
@@ -27,6 +27,7 @@ async function ensureSuperAdminProfile(user) {
       {
         uid: user.uid,
         email: (user.email || "").trim().toLowerCase(),
+        phone: "",
         canEditSales: true,
         canEditKnocks: true,
         canEditRoster: true,
@@ -65,6 +66,39 @@ const ALL_PERMS = {
   canCreateUsers: true,
   canViewPerformance: true,
 };
+const VIEW_PREVIEW_STORAGE_KEY = "ab-sales-view-preview";
+
+function readStoredViewPreview() {
+  if (typeof window === "undefined") return { mode: "admin" };
+  try {
+    const raw = window.localStorage.getItem(VIEW_PREVIEW_STORAGE_KEY);
+    if (!raw) return { mode: "admin" };
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return { mode: "admin" };
+    return {
+      mode: parsed.mode === "manager" || parsed.mode === "user" ? parsed.mode : "admin",
+      team: typeof parsed.team === "string" ? parsed.team : "",
+      repId: typeof parsed.repId === "string" ? parsed.repId : "",
+      repName: typeof parsed.repName === "string" ? parsed.repName : "",
+      location: typeof parsed.location === "string" ? parsed.location : "",
+    };
+  } catch {
+    return { mode: "admin" };
+  }
+}
+
+function writeStoredViewPreview(nextValue) {
+  if (typeof window === "undefined") return;
+  try {
+    if (!nextValue || nextValue.mode === "admin") {
+      window.localStorage.removeItem(VIEW_PREVIEW_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(VIEW_PREVIEW_STORAGE_KEY, JSON.stringify(nextValue));
+  } catch {
+    // Ignore storage failures and keep preview state in memory.
+  }
+}
 
 export function useAuthRole() {
   const isDemo = useDemoMode();
@@ -74,6 +108,7 @@ export function useAuthRole() {
   const [hasAdminProfile, setHasAdminProfile] = useState(false);
   const [profileRole, setProfileRole] = useState("viewer");
   const [profile, setProfile] = useState(null);
+  const [viewPreview, setViewPreviewState] = useState(readStoredViewPreview);
 
   useEffect(() => {
     if (isDemo) {
@@ -120,6 +155,7 @@ export function useAuthRole() {
           team: "",
           manager: "",
           location: "",
+          phone: "",
           repId: "",
           repName: "",
         });
@@ -155,6 +191,7 @@ export function useAuthRole() {
             team: data.team || "",
             manager: data.manager || "",
             location: data.location || "",
+            phone: data.phone || "",
             repId: data.repId || "",
             repName: data.repName || "",
           });
@@ -174,26 +211,106 @@ export function useAuthRole() {
     };
   }, [isDemo]);
 
-  const isSuperAdmin = isSuperAdminEmail(user?.email);
-  const isPrimarySuperAdmin = isPrimarySuperAdminEmail(user?.email);
-  const isAdmin = !!user && (isSuperAdmin || hasAdminProfile);
-  const isAdminRole = isSuperAdmin || profileRole === "admin";
-  const isManager = !isSuperAdmin && profileRole === "manager";
-  const isUser = !isSuperAdmin && profileRole === "user";
+  const setViewPreview = useCallback((nextValue) => {
+    const normalized = {
+      mode: nextValue?.mode === "manager" || nextValue?.mode === "user" ? nextValue.mode : "admin",
+      team: typeof nextValue?.team === "string" ? nextValue.team : "",
+      repId: typeof nextValue?.repId === "string" ? nextValue.repId : "",
+      repName: typeof nextValue?.repName === "string" ? nextValue.repName : "",
+      location: typeof nextValue?.location === "string" ? nextValue.location : "",
+    };
+    setViewPreviewState(normalized);
+    writeStoredViewPreview(normalized);
+  }, []);
+
+  const clearViewPreview = useCallback(() => {
+    const cleared = { mode: "admin" };
+    setViewPreviewState(cleared);
+    writeStoredViewPreview(cleared);
+  }, []);
+
+  const actualIsSuperAdmin = isSuperAdminEmail(user?.email);
+  const actualIsPrimarySuperAdmin = isPrimarySuperAdminEmail(user?.email);
+  const actualIsAdmin = !!user && (actualIsSuperAdmin || hasAdminProfile);
+  const actualIsAdminRole = actualIsSuperAdmin || profileRole === "admin";
+  const actualIsManager = !actualIsSuperAdmin && profileRole === "manager";
+  const actualIsUser = !actualIsSuperAdmin && profileRole === "user";
+
+  const isPreviewing =
+    !!user &&
+    actualIsPrimarySuperAdmin &&
+    (viewPreview.mode === "manager" || viewPreview.mode === "user");
+
+  const effectiveProfile = useMemo(() => {
+    if (!isPreviewing) return profile;
+
+    if (viewPreview.mode === "manager") {
+      return {
+        ...(profile || {}),
+        uid: user?.uid || "",
+        email: (user?.email || "").trim().toLowerCase(),
+        role: "manager",
+        roleLabel: "Manager",
+        team: viewPreview.team || "",
+        manager: viewPreview.team || "",
+        location: "",
+        phone: profile?.phone || "",
+        repId: "",
+        repName: "",
+      };
+    }
+
+    return {
+      ...(profile || {}),
+      uid: user?.uid || "",
+      email: (user?.email || "").trim().toLowerCase(),
+      role: "user",
+      roleLabel: "User",
+      team: viewPreview.team || "",
+      manager: viewPreview.team || "",
+      location: viewPreview.location || "",
+      phone: profile?.phone || "",
+      repId: viewPreview.repId || "",
+      repName: viewPreview.repName || "",
+    };
+  }, [isPreviewing, profile, user?.email, user?.uid, viewPreview]);
+
+  const effectivePermissions = useMemo(() => {
+    if (!isPreviewing) return permissions;
+    return EMPTY_PERMS;
+  }, [isPreviewing, permissions]);
+
+  const isSuperAdmin = actualIsSuperAdmin && !isPreviewing;
+  const isPrimarySuperAdmin = actualIsPrimarySuperAdmin;
+  const isAdminRole = isPreviewing ? false : actualIsAdminRole;
+  const isManager = isPreviewing ? viewPreview.mode === "manager" : actualIsManager;
+  const isUser = isPreviewing ? viewPreview.mode === "user" : actualIsUser;
+  const isAdmin = isPreviewing ? false : actualIsAdmin;
+  const effectiveRole = isPreviewing ? viewPreview.mode : actualIsAdmin ? profileRole : isDemo ? "demo" : "viewer";
 
   return {
     user,
-    role: isAdmin ? profileRole : isDemo ? "demo" : "viewer",
+    role: effectiveRole,
     isAdmin,
     isSuperAdmin,
     isPrimarySuperAdmin,
     isAdminRole,
     isManager,
     isUser,
-    permissions,
-    profile,
+    permissions: effectivePermissions,
+    profile: effectiveProfile,
     loading,
     isDemo,
+    actualIsAdmin,
+    actualIsSuperAdmin,
+    actualIsPrimarySuperAdmin,
+    actualIsAdminRole,
+    actualIsManager,
+    actualIsUser,
+    isPreviewing,
+    viewPreview,
+    setViewPreview,
+    clearViewPreview,
   };
 }
 

@@ -7,6 +7,7 @@ import { useRosterAccess } from "./hooks/useRosterAccess.js";
 import Navbar from "./components/NavBar.jsx";
 import InstallAppBanner from "./components/InstallAppBanner.jsx";
 import LoginModal from "./components/LoginModal.jsx";
+import { LoadingPanel, PageShell } from "./components/PageLayout.jsx";
 import SalesPage from "./pages/SalesPage.jsx";
 import KnocksPage from "./pages/KnocksPage.jsx";
 import RosterPage from "./pages/RosterPage";
@@ -26,25 +27,39 @@ export default function App() {
     isAdmin,
     isSuperAdmin,
     isPrimarySuperAdmin,
+    actualIsAdmin,
+    actualIsPrimarySuperAdmin,
+    actualIsManager,
+    actualIsUser,
     loading,
     isDemo,
     isManager,
     isUser,
+    viewPreview,
+    setViewPreview,
+    clearViewPreview,
+    isPreviewing,
   } = authState;
   const scope = buildAccessScope(authState);
   const [loginOpen, setLoginOpen] = useState(false);
-  const { canViewRoster, loading: rosterAccessLoading } = useRosterAccess(
+  const { canViewRoster: actualCanViewRoster, loading: rosterAccessLoading } = useRosterAccess(
     user?.email,
-    isAdmin
+    actualIsAdmin
   );
   const canViewPerformance = scope.canViewPerformance || isDemo;
+  const canViewRoster =
+    !isPreviewing || (!isManager && !isUser) ? actualCanViewRoster : false;
   const appLoading = loading || rosterAccessLoading;
   const isAuthenticated = !!user || isDemo;
   const showNav = isAuthenticated;
 
   const requireAuth = (element) => {
     if (appLoading) {
-      return <div className="px-6 py-10 text-sm text-slate-600">Checking access...</div>;
+      return (
+        <PageShell>
+          <LoadingPanel label="Checking access" detail="Confirming your dashboard permissions." />
+        </PageShell>
+      );
     }
 
     return isAuthenticated ? element : <Navigate to="/" replace />;
@@ -61,12 +76,17 @@ export default function App() {
             isAdmin={isAdmin}
             isSuperAdmin={isSuperAdmin}
             isPrimarySuperAdmin={isPrimarySuperAdmin}
+            actualIsPrimarySuperAdmin={actualIsPrimarySuperAdmin}
             isManager={isManager}
             isUser={isUser}
             isDemo={isDemo}
             canViewPerformance={canViewPerformance}
             canViewRoster={canViewRoster}
             canViewOnboarding={scope.canViewOnboarding}
+            canViewMap={scope.canViewMap}
+            viewPreview={viewPreview}
+            onViewPreviewChange={setViewPreview}
+            onClearViewPreview={clearViewPreview}
             onLogout={() => signOut(auth)}
             onOpenLogin={() => setLoginOpen(true)}
           />
@@ -98,9 +118,11 @@ export default function App() {
                 isAdmin={isAdmin}
                 isSuperAdmin={isSuperAdmin}
                 isManager={isManager}
+                isUser={isUser}
                 canViewRoster={canViewRoster}
                 canViewPerformance={canViewPerformance}
                 canViewOnboarding={scope.canViewOnboarding}
+                canViewMap={scope.canViewMap}
                 onOpenLogin={() => setLoginOpen(true)}
               />
             }
@@ -127,9 +149,19 @@ export default function App() {
           <Route
             path="/coverage-map"
             element={requireAuth(
-              <Suspense fallback={<div className="px-6 py-10 text-sm text-slate-600">Loading map tools...</div>}>
-                <CoverageMapPage />
-              </Suspense>
+              scope.canViewMap ? (
+                <Suspense
+                  fallback={
+                    <PageShell>
+                      <LoadingPanel label="Loading map tools" detail="Preparing coverage data." />
+                    </PageShell>
+                  }
+                >
+                  <CoverageMapPage />
+                </Suspense>
+              ) : (
+                <Navigate to="/sales" replace />
+              )
             )}
           />
           <Route
@@ -154,7 +186,7 @@ export default function App() {
           <Route
             path="/settings"
             element={requireAuth(
-              !isDemo && isPrimarySuperAdmin ? (
+              !isDemo && (actualIsPrimarySuperAdmin || actualIsManager || actualIsUser) ? (
                 <SettingsPage />
               ) : (
                 <Navigate to="/sales" replace />

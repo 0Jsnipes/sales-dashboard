@@ -5,12 +5,13 @@ import {
   doc,
   onSnapshot,
   serverTimestamp,
+  setDoc,
   updateDoc,
 } from "firebase/firestore";
 import AddRepsModal from "../components/AddRepsModal.jsx";
 import EditRepsModal from "../components/EditRepsModal.jsx";
 import Modal from "../components/Modal.jsx";
-import { PageHero, PageShell, SectionIntro } from "../components/PageLayout.jsx";
+import { LoadingPanel, PageHero, PageShell, SectionIntro } from "../components/PageLayout.jsx";
 import { useAuthRole } from "../hooks/useAuth";
 import { normalizeEmail } from "../lib/access";
 import { db } from "../lib/firebase";
@@ -86,12 +87,37 @@ function buildEmptyForm() {
   };
 }
 
+function buildEditUserForm(account) {
+  return {
+    id: account?.id || "",
+    email: account?.email || "",
+    role: account?.role || "user",
+    repId: account?.repId || "",
+    repName: account?.repName || "",
+    location: account?.location || "",
+    team: account?.team || account?.manager || "",
+    canEditSales: !!account?.canEditSales,
+    canEditKnocks: !!account?.canEditKnocks,
+    canEditRoster: !!account?.canEditRoster,
+    canEditOnboarding: !!account?.canEditOnboarding,
+    canEditReps: !!account?.canEditReps,
+    canCreateUsers: !!account?.canCreateUsers,
+    canViewPerformance: !!account?.canViewPerformance,
+  };
+}
+
 function sortByLabel(values) {
   return [...values].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 }
 
 export default function SettingsPage() {
-  const { user, isSuperAdmin, isPrimarySuperAdmin, loading } = useAuthRole();
+  const {
+    user,
+    profile,
+    actualIsPrimarySuperAdmin,
+    isManager,
+    loading,
+  } = useAuthRole();
   const currentWeekISO = toISO(startOfWeek());
   const [users, setUsers] = useState([]);
   const [reps, setReps] = useState([]);
@@ -99,19 +125,26 @@ export default function SettingsPage() {
   const [savingUser, setSavingUser] = useState(false);
   const [userError, setUserError] = useState("");
   const [userSuccess, setUserSuccess] = useState("");
-  const [savingAssignmentUid, setSavingAssignmentUid] = useState("");
-  const [savingRoleUid, setSavingRoleUid] = useState("");
+  const [editUserForm, setEditUserForm] = useState(null);
+  const [savingEditUser, setSavingEditUser] = useState(false);
   const [createUserOpen, setCreateUserOpen] = useState(false);
   const [userPanelOpen, setUserPanelOpen] = useState(true);
   const [repPanelOpen, setRepPanelOpen] = useState(true);
   const [addRepOpen, setAddRepOpen] = useState(false);
   const [editRepOpen, setEditRepOpen] = useState(false);
   const [repToEdit, setRepToEdit] = useState(null);
-  const [permissionsModalAccount, setPermissionsModalAccount] = useState(null);
   const [options, setOptions] = useState({ manager: [], location: [] });
+  const [userSearch, setUserSearch] = useState("");
+  const [userTeamFilter, setUserTeamFilter] = useState("");
+  const [userLocationFilter, setUserLocationFilter] = useState("");
+  const [profileForm, setProfileForm] = useState({ repName: "", phone: "" });
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState("");
+  const [profileSuccess, setProfileSuccess] = useState("");
+  const [profileEditing, setProfileEditing] = useState(false);
 
   useEffect(() => {
-    if (!isSuperAdmin) return undefined;
+    if (!actualIsPrimarySuperAdmin) return undefined;
     const unsubscribe = onSnapshot(collection(db, "adminUsers"), (snapshot) => {
       const rows = snapshot.docs.map((docRef) => ({ id: docRef.id, ...docRef.data() }));
       rows.sort((a, b) =>
@@ -120,10 +153,10 @@ export default function SettingsPage() {
       setUsers(rows);
     });
     return () => unsubscribe();
-  }, [isSuperAdmin]);
+  }, [actualIsPrimarySuperAdmin]);
 
   useEffect(() => {
-    if (!isSuperAdmin) return undefined;
+    if (!actualIsPrimarySuperAdmin) return undefined;
     const unsubscribe = onSnapshot(collection(db, "weeks", currentWeekISO, "reps"), (snapshot) => {
       const rows = snapshot.docs
         .map((docRef) => ({ id: docRef.id, ...docRef.data() }))
@@ -136,10 +169,10 @@ export default function SettingsPage() {
       setReps(rows);
     });
     return () => unsubscribe();
-  }, [currentWeekISO, isSuperAdmin]);
+  }, [currentWeekISO, actualIsPrimarySuperAdmin]);
 
   useEffect(() => {
-    if (!isSuperAdmin) return undefined;
+    if (!actualIsPrimarySuperAdmin) return undefined;
     const unsubscribe = onSnapshot(collection(db, "rosterOptions"), (snapshot) => {
       const grouped = { manager: [], location: [] };
       snapshot.forEach((docRef) => {
@@ -159,7 +192,7 @@ export default function SettingsPage() {
       });
     });
     return () => unsubscribe();
-  }, [isSuperAdmin]);
+  }, [actualIsPrimarySuperAdmin]);
 
   const managerOptions = useMemo(() => {
     const values = new Set(options.manager);
@@ -184,7 +217,41 @@ export default function SettingsPage() {
     return sortByLabel(Array.from(values).filter(Boolean));
   }, [options.location, reps, users]);
 
+  const filteredUsers = useMemo(() => {
+    const searchValue = userSearch.trim().toLowerCase();
+
+    return users.filter((account) => {
+      const accountTeam = account.team || account.manager || "";
+      const accountLocation = account.location || "";
+      const matchesSearch =
+        !searchValue ||
+        [
+          account.email,
+          account.id,
+          account.repName,
+          accountTeam,
+          accountLocation,
+          account.role,
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(searchValue);
+
+      const matchesTeam = !userTeamFilter || accountTeam === userTeamFilter;
+      const matchesLocation = !userLocationFilter || accountLocation === userLocationFilter;
+
+      return matchesSearch && matchesTeam && matchesLocation;
+    });
+  }, [userLocationFilter, userSearch, userTeamFilter, users]);
+
   const currentUid = user?.uid || "";
+
+  useEffect(() => {
+    setProfileForm({
+      repName: profile?.repName || "",
+      phone: profile?.phone || "",
+    });
+  }, [profile?.phone, profile?.repName]);
 
   const applyRolePreset = (roleValue) => {
     const roleConfig = ROLE_OPTIONS.find((role) => role.value === roleValue) || DEFAULT_ROLE;
@@ -295,50 +362,78 @@ export default function SettingsPage() {
     }
   };
 
-  const updateRole = async (account, nextRole) => {
-    const roleConfig = ROLE_OPTIONS.find((role) => role.value === nextRole);
-    if (!roleConfig) return;
+  const openEditUserModal = (account) => {
+    setEditUserForm(buildEditUserForm(account));
+  };
 
-    setSavingRoleUid(account.id);
+  const applyEditRolePreset = (roleValue) => {
+    const roleConfig = ROLE_OPTIONS.find((role) => role.value === roleValue) || DEFAULT_ROLE;
+    setEditUserForm((prev) =>
+      prev
+        ? {
+            ...prev,
+            role: roleConfig.value,
+            ...roleConfig.permissions,
+          }
+        : prev
+    );
+  };
+
+  const handleEditUserRepChange = (repId) => {
+    setEditUserForm((prev) => {
+      if (!prev) return prev;
+      if (!repId) {
+        return {
+          ...prev,
+          repId: "",
+          repName: "",
+        };
+      }
+
+      const rep = reps.find((entry) => entry.id === repId);
+      if (!rep) return prev;
+
+      return {
+        ...prev,
+        repId: rep.id,
+        repName: rep.name || "",
+        team: rep.manager || prev.team || "",
+        location: rep.team || prev.location || "",
+      };
+    });
+  };
+
+  const saveEditUser = async () => {
+    if (!editUserForm?.id) return;
+
+    const roleConfig =
+      ROLE_OPTIONS.find((role) => role.value === editUserForm.role) || DEFAULT_ROLE;
+
+    setSavingEditUser(true);
     try {
-      await updateDoc(doc(db, "adminUsers", account.id), {
+      await updateDoc(doc(db, "adminUsers", editUserForm.id), {
         role: roleConfig.value,
         roleLabel: roleConfig.label,
-        ...roleConfig.permissions,
+        repId: editUserForm.repId || "",
+        repName: editUserForm.repName || "",
+        team: editUserForm.team || "",
+        manager: editUserForm.team || "",
+        location: editUserForm.location || "",
+        canEditSales: !!editUserForm.canEditSales,
+        canEditKnocks: !!editUserForm.canEditKnocks,
+        canEditRoster: !!editUserForm.canEditRoster,
+        canEditOnboarding: !!editUserForm.canEditOnboarding,
+        canEditReps: !!editUserForm.canEditReps,
+        canCreateUsers: !!editUserForm.canCreateUsers,
+        canViewPerformance: !!editUserForm.canViewPerformance,
         updatedAt: serverTimestamp(),
         updatedBy: user?.uid || null,
       });
+      setEditUserForm(null);
     } catch (err) {
-      alert(err?.message || "Failed to update role.");
+      alert(err?.message || "Failed to update user.");
     } finally {
-      setSavingRoleUid("");
-    }
-  };
-
-  const updatePerm = async (uid, key, nextVal) => {
-    try {
-      await updateDoc(doc(db, "adminUsers", uid), {
-        [key]: nextVal,
-        updatedAt: serverTimestamp(),
-        updatedBy: user?.uid || null,
-      });
-    } catch (err) {
-      alert(err?.message || "Failed to update permissions.");
-    }
-  };
-
-  const updateAssignment = async (uid, patch) => {
-    setSavingAssignmentUid(uid);
-    try {
-      await updateDoc(doc(db, "adminUsers", uid), {
-        ...patch,
-        updatedAt: serverTimestamp(),
-        updatedBy: user?.uid || null,
-      });
-    } catch (err) {
-      alert(err?.message || "Failed to update assignment.");
-    } finally {
-      setSavingAssignmentUid("");
+      setSavingEditUser(false);
     }
   };
 
@@ -351,18 +446,156 @@ export default function SettingsPage() {
     }
   };
 
+  const saveOwnProfile = async (event) => {
+    event.preventDefault();
+    if (!user?.uid) return;
+
+    const nextName = profileForm.repName.trim();
+    const nextPhone = profileForm.phone.trim();
+    if (!nextName) {
+      setProfileError("Name is required.");
+      setProfileSuccess("");
+      return;
+    }
+
+    setSavingProfile(true);
+    setProfileError("");
+    setProfileSuccess("");
+
+    try {
+      await setDoc(
+        doc(db, "adminUsers", user.uid),
+        {
+          repName: nextName,
+          phone: nextPhone,
+          updatedAt: serverTimestamp(),
+          updatedBy: user.uid,
+        },
+        { merge: true }
+      );
+
+      setProfileSuccess("Profile updated.");
+      setProfileEditing(false);
+    } catch (err) {
+      setProfileError(err?.message || "Failed to update profile.");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   if (loading) {
     return (
       <PageShell>
-        <div className="surface-panel px-5 py-8 text-sm text-slate-600">Loading...</div>
+        <LoadingPanel label="Loading settings" detail="Checking account permissions." />
       </PageShell>
     );
   }
 
-  if (!isSuperAdmin) {
+  if (!actualIsPrimarySuperAdmin) {
     return (
       <PageShell>
-        <div className="surface-panel px-5 py-8 text-sm text-slate-600">Access restricted.</div>
+        <PageHero
+          eyebrow="Profile"
+          title="Manage your account details."
+          description="You can update your name and phone number here. All other settings stay locked to your assigned role."
+          stats={[
+            { label: "Role", value: isManager ? "Manager" : "User" },
+            { label: "Name", value: profile?.repName || "Not set" },
+            { label: "Team", value: profile?.team || "Not assigned" },
+            { label: "Location", value: profile?.location || "Not assigned" },
+          ]}
+        />
+
+        <section className="glass-panel p-5">
+          <SectionIntro
+            eyebrow="My Profile"
+            title="Update your contact information."
+            description="Only your name and phone number are editable in this view."
+            actions={
+              <button
+                className="btn btn-outline"
+                type="button"
+                onClick={() => {
+                  setProfileEditing((value) => !value);
+                  setProfileError("");
+                  setProfileSuccess("");
+                  setProfileForm({
+                    repName: profile?.repName || "",
+                    phone: profile?.phone || "",
+                  });
+                }}
+              >
+                {profileEditing ? "Cancel" : "Edit"}
+              </button>
+            }
+          />
+
+          <form onSubmit={saveOwnProfile} className="mt-5 max-w-2xl space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="grid gap-2">
+                <span className="text-sm font-medium text-slate-700">Name</span>
+                <input
+                  className="input input-bordered h-12 w-full"
+                  type="text"
+                  value={profileForm.repName}
+                  disabled={!profileEditing}
+                  onChange={(event) =>
+                    setProfileForm((prev) => ({ ...prev, repName: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="grid gap-2">
+                <span className="text-sm font-medium text-slate-700">Phone Number</span>
+                <input
+                  className="input input-bordered h-12 w-full"
+                  type="tel"
+                  value={profileForm.phone}
+                  disabled={!profileEditing}
+                  onChange={(event) =>
+                    setProfileForm((prev) => ({ ...prev, phone: event.target.value }))
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/80 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Role</p>
+                <p className="mt-1 text-sm font-semibold text-slate-900">
+                  {profile?.roleLabel || (isManager ? "Manager" : "User")}
+                </p>
+              </div>
+              <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/80 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Team</p>
+                <p className="mt-1 text-sm font-semibold text-slate-900">{profile?.team || "Not assigned"}</p>
+              </div>
+              <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/80 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Location</p>
+                <p className="mt-1 text-sm font-semibold text-slate-900">
+                  {profile?.location || "Not assigned"}
+                </p>
+              </div>
+            </div>
+
+            {profileError ? (
+              <div className="rounded-[20px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {profileError}
+              </div>
+            ) : null}
+
+            {profileSuccess ? (
+              <div className="rounded-[20px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                {profileSuccess}
+              </div>
+            ) : null}
+
+            <div className="flex justify-end">
+              <button className="btn btn-primary" type="submit" disabled={savingProfile || !profileEditing}>
+                {savingProfile ? "Saving..." : "Save Profile"}
+              </button>
+            </div>
+          </form>
+        </section>
       </PageShell>
     );
   }
@@ -377,7 +610,6 @@ export default function SettingsPage() {
           { label: "Users", value: users.length || 0 },
           { label: "Current Reps", value: reps.length || 0 },
           { label: "Week", value: currentWeekISO },
-          { label: "Your UID", value: currentUid || "Unknown" },
         ]}
       />
 
@@ -400,7 +632,7 @@ export default function SettingsPage() {
                   setUserSuccess("");
                   setCreateUserOpen(true);
                 }}
-                disabled={!isPrimarySuperAdmin}
+                disabled={!actualIsPrimarySuperAdmin}
               >
                 Create User
               </button>
@@ -415,107 +647,74 @@ export default function SettingsPage() {
         ) : null}
 
         {userPanelOpen ? (
-        <div className="data-table-shell mt-5">
+        <>
+        <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_220px_220px]">
+          <input
+            className="input input-bordered h-11 w-full"
+            type="search"
+            value={userSearch}
+            onChange={(event) => setUserSearch(event.target.value)}
+            placeholder="Search email, rep, team, location, or UID"
+          />
+          <select
+            className="select select-bordered h-11 min-h-11 w-full"
+            value={userTeamFilter}
+            onChange={(event) => setUserTeamFilter(event.target.value)}
+          >
+            <option value="">All teams</option>
+            {managerOptions.map((team) => (
+              <option key={team} value={team}>
+                {team}
+              </option>
+            ))}
+          </select>
+          <select
+            className="select select-bordered h-11 min-h-11 w-full"
+            value={userLocationFilter}
+            onChange={(event) => setUserLocationFilter(event.target.value)}
+          >
+            <option value="">All locations</option>
+            {locationOptions.map((location) => (
+              <option key={location} value={location}>
+                {location}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="data-table-shell mt-4">
           <div className="data-table-scroll">
-            <table className="table w-full min-w-[1280px]">
-              <thead className="bg-slate-100/90 text-slate-700 [&>tr>th]:border-b [&>tr>th]:border-slate-200">
+            <table className="table table-sm w-full min-w-[980px] table-fixed">
+              <thead className="bg-slate-100/90 text-slate-700 [&>tr>th]:border-b [&>tr>th]:border-slate-200 [&>tr>th]:px-3">
                 <tr>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Rep</th>
-                  <th>Team</th>
-                  <th>Location</th>
-                  <th className="min-w-[180px]">UID</th>
-                  <th />
+                  <th className="w-[22%]">Email</th>
+                  <th className="w-[10%]">Role</th>
+                  <th className="w-[18%]">Rep</th>
+                  <th className="w-[14%]">Team</th>
+                  <th className="w-[14%]">Location</th>
+                  <th className="w-[14%]">UID</th>
+                  <th className="w-[8%]" />
                 </tr>
               </thead>
-              <tbody className="[&>tr>td]:border-b [&>tr>td]:border-slate-200">
-                {users.map((account) => {
+              <tbody className="[&>tr>td]:border-b [&>tr>td]:border-slate-200 [&>tr>td]:px-3 [&>tr>td]:py-2.5">
+                {filteredUsers.map((account) => {
                   const isSelf = account.id === currentUid;
                   return (
                     <tr key={account.id}>
-                      <td className="font-medium">{account.email || "Unknown"}</td>
-                      <td>
-                        <select
-                          className="select select-bordered select-sm w-32"
-                          value={account.role || "user"}
-                          disabled={isSelf || savingRoleUid === account.id}
-                          onChange={(event) => updateRole(account, event.target.value)}
-                        >
-                          {ROLE_OPTIONS.map((role) => (
-                            <option key={role.value} value={role.value}>
-                              {role.label}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <select
-                          className="select select-bordered select-sm w-44"
-                          value={account.repId || ""}
-                          disabled={savingAssignmentUid === account.id}
-                          onChange={(event) => {
-                            const rep = reps.find((entry) => entry.id === event.target.value);
-                            updateAssignment(account.id, {
-                              repId: rep?.id || "",
-                              repName: rep?.name || "",
-                              team: rep?.manager || account.team || "",
-                              location: rep?.team || account.location || "",
-                              manager: rep?.manager || account.team || "",
-                            });
-                          }}
-                        >
-                          <option value="">No linked rep</option>
-                          {reps.map((rep) => (
-                            <option key={rep.id} value={rep.id}>
-                              {rep.name || "Unnamed rep"}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <select
-                          className="select select-bordered select-sm w-40"
-                          value={account.team || ""}
-                          disabled={savingAssignmentUid === account.id}
-                          onChange={(event) =>
-                            updateAssignment(account.id, { team: event.target.value })
-                          }
-                        >
-                          <option value="">No team</option>
-                          {managerOptions.map((team) => (
-                            <option key={team} value={team}>
-                              {team}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <select
-                          className="select select-bordered select-sm w-40"
-                          value={account.location || ""}
-                          disabled={savingAssignmentUid === account.id}
-                          onChange={(event) =>
-                            updateAssignment(account.id, { location: event.target.value })
-                          }
-                        >
-                          <option value="">No location</option>
-                          {locationOptions.map((location) => (
-                            <option key={location} value={location}>
-                              {location}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="text-xs font-mono text-slate-500">{account.id}</td>
+                      <td className="truncate font-medium">{account.email || "Unknown"}</td>
+                      <td>{ROLE_OPTIONS.find((role) => role.value === account.role)?.label || "User"}</td>
+                      <td className="truncate">{account.repName || "No linked rep"}</td>
+                      <td className="truncate">{account.team || account.manager || "No team"}</td>
+                      <td className="truncate">{account.location || "No location"}</td>
+                      <td className="truncate font-mono text-[11px] text-slate-500">{account.id}</td>
                       <td className="text-right">
-                        <div className="flex justify-end gap-2">
+                        <div className="flex justify-end gap-1.5">
                           <button
                             type="button"
                             className="btn btn-outline btn-xs"
-                            onClick={() => setPermissionsModalAccount(account)}
+                            onClick={() => openEditUserModal(account)}
                           >
-                            Permissions
+                            Edit
                           </button>
                           <button
                             type="button"
@@ -530,10 +729,10 @@ export default function SettingsPage() {
                     </tr>
                   );
                 })}
-                {users.length === 0 ? (
+                {filteredUsers.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-6 text-center text-sm text-slate-500">
-                      No user profiles yet.
+                      No user profiles matched the current filters.
                     </td>
                   </tr>
                 ) : null}
@@ -541,6 +740,7 @@ export default function SettingsPage() {
             </table>
           </div>
         </div>
+        </>
         ) : null}
       </section>
 
@@ -670,7 +870,7 @@ export default function SettingsPage() {
                 value={form.role}
                 onChange={(event) => applyRolePreset(event.target.value)}
               >
-                {ROLE_OPTIONS.filter((role) => isPrimarySuperAdmin || role.value !== "admin").map((role) => (
+                {ROLE_OPTIONS.filter((role) => actualIsPrimarySuperAdmin || role.value !== "admin").map((role) => (
                   <option key={role.value} value={role.value}>
                     {role.label}
                   </option>
@@ -712,7 +912,7 @@ export default function SettingsPage() {
             </div>
 
             <div className="grid gap-2 sm:grid-cols-3">
-              {ROLE_OPTIONS.filter((role) => isPrimarySuperAdmin || role.value !== "admin").map((role) => (
+              {ROLE_OPTIONS.filter((role) => actualIsPrimarySuperAdmin || role.value !== "admin").map((role) => (
                 <div
                   key={role.value}
                   className="rounded-[18px] border border-slate-200/70 bg-white/60 px-4 py-3"
@@ -777,48 +977,142 @@ export default function SettingsPage() {
       />
 
       <Modal
-        open={!!permissionsModalAccount}
-        onClose={() => setPermissionsModalAccount(null)}
-        maxWidth="max-w-2xl"
+        open={!!editUserForm}
+        onClose={() => setEditUserForm(null)}
+        maxWidth="max-w-3xl"
       >
-        {permissionsModalAccount ? (
+        {editUserForm ? (
           <div className="space-y-5">
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                Admin Permissions
+                User Access
               </p>
               <h3 className="text-2xl font-bold text-slate-950">
-                {permissionsModalAccount.email || "User permissions"}
+                {editUserForm.email || "Edit user"}
               </h3>
               <p className="text-sm text-slate-600">
-                Update all permission toggles in one place.
+                Change role, linked rep, team, location, and permissions in one place.
               </p>
             </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="grid gap-2">
+                <span className="text-sm font-medium text-slate-700">Role</span>
+                <select
+                  className="select select-bordered h-11 min-h-11 w-full"
+                  value={editUserForm.role}
+                  disabled={editUserForm.id === currentUid}
+                  onChange={(event) => applyEditRolePreset(event.target.value)}
+                >
+                  {ROLE_OPTIONS.map((role) => (
+                    <option key={role.value} value={role.value}>
+                      {role.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-2">
+                <span className="text-sm font-medium text-slate-700">Linked Rep</span>
+                <select
+                  className="select select-bordered h-11 min-h-11 w-full"
+                  value={editUserForm.repId}
+                  onChange={(event) => handleEditUserRepChange(event.target.value)}
+                >
+                  <option value="">No linked rep</option>
+                  {reps.map((rep) => (
+                    <option key={rep.id} value={rep.id}>
+                      {rep.name || "Unnamed rep"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-2">
+                <span className="text-sm font-medium text-slate-700">Team</span>
+                <select
+                  className="select select-bordered h-11 min-h-11 w-full"
+                  value={editUserForm.team}
+                  onChange={(event) =>
+                    setEditUserForm((prev) =>
+                      prev ? { ...prev, team: event.target.value } : prev
+                    )
+                  }
+                >
+                  <option value="">No team</option>
+                  {managerOptions.map((team) => (
+                    <option key={team} value={team}>
+                      {team}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="grid gap-2">
+                <span className="text-sm font-medium text-slate-700">Location</span>
+                <select
+                  className="select select-bordered h-11 min-h-11 w-full"
+                  value={editUserForm.location}
+                  onChange={(event) =>
+                    setEditUserForm((prev) =>
+                      prev ? { ...prev, location: event.target.value } : prev
+                    )
+                  }
+                >
+                  <option value="">No location</option>
+                  {locationOptions.map((location) => (
+                    <option key={location} value={location}>
+                      {location}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/80 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                UID
+              </p>
+              <p className="mt-1 break-all font-mono text-xs text-slate-700">{editUserForm.id}</p>
+            </div>
+
             <div className="grid gap-3 sm:grid-cols-2">
               {PERMISSION_FIELDS.map(([key, label]) => (
                 <label
-                  key={`${permissionsModalAccount.id}-${key}`}
+                  key={`${editUserForm.id}-${key}`}
                   className="flex items-center justify-between rounded-[20px] border border-slate-200/70 bg-slate-50/80 px-4 py-3 text-sm text-slate-700"
                 >
                   <span>{label}</span>
                   <input
                     type="checkbox"
                     className="toggle"
-                    checked={!!permissionsModalAccount[key]}
-                    onChange={(event) => {
-                      const nextVal = event.target.checked;
-                      setPermissionsModalAccount((prev) =>
-                        prev ? { ...prev, [key]: nextVal } : prev
-                      );
-                      updatePerm(permissionsModalAccount.id, key, nextVal);
-                    }}
+                    checked={!!editUserForm[key]}
+                    onChange={(event) =>
+                      setEditUserForm((prev) =>
+                        prev ? { ...prev, [key]: event.target.checked } : prev
+                      )
+                    }
                   />
                 </label>
               ))}
             </div>
-            <div className="flex justify-end">
-              <button className="btn btn-primary" type="button" onClick={() => setPermissionsModalAccount(null)}>
-                Done
+
+            <div className="flex justify-end gap-2">
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => setEditUserForm(null)}
+                disabled={savingEditUser}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={saveEditUser}
+                disabled={savingEditUser}
+              >
+                {savingEditUser ? "Saving..." : "Save Changes"}
               </button>
             </div>
           </div>

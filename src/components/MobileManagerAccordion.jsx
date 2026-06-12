@@ -6,6 +6,7 @@ import Modal from "./Modal";
 import { SectionIntro } from "./PageLayout.jsx";
 import { useDemoMode } from "../hooks/useDemoMode";
 import { getDemoWeekRows } from "../demo/demoData.js";
+import { buildWeeklySalesRows, normalizeSalesUploadOrder } from "../lib/weeklySalesUploads.js";
 
 const clampNum = (value) => (Number.isFinite(+value) && +value >= 0 ? Math.floor(+value) : 0);
 
@@ -47,9 +48,16 @@ export default function MobileManagerAccordion({
   repNameFilter = "",
 }) {
   const isDemo = useDemoMode();
-  const [rows, setRows] = useState(null);
+  const [rawRows, setRawRows] = useState(null);
+  const [salesUploadOrders, setSalesUploadOrders] = useState([]);
   const [expandedManagers, setExpandedManagers] = useState({});
   const [selectedRep, setSelectedRep] = useState(null);
+
+  const rows = useMemo(
+    () =>
+      rawRows ? buildWeeklySalesRows(rawRows, salesUploadOrders, weekISO) : null,
+    [rawRows, salesUploadOrders, weekISO]
+  );
 
   useEffect(() => {
     const normalize = (value) => (value ?? "").trim();
@@ -89,7 +97,7 @@ export default function MobileManagerAccordion({
         }
       });
 
-      setRows(
+      setRawRows(
         Array.from(deduped.values()).sort((a, b) =>
           (a.name || "").localeCompare(b.name || "", undefined, {
             sensitivity: "base",
@@ -129,7 +137,7 @@ export default function MobileManagerAccordion({
         }
       });
 
-      setRows(
+      setRawRows(
         Array.from(deduped.values()).sort((a, b) =>
           (a.name || "").localeCompare(b.name || "", undefined, {
             sensitivity: "base",
@@ -143,6 +151,34 @@ export default function MobileManagerAccordion({
       unsubscribe();
     };
   }, [base, isDemo, managerFilter, repNameFilter, teamFilter, weekISO]);
+
+  useEffect(() => {
+    if (isDemo) {
+      setSalesUploadOrders([]);
+      return undefined;
+    }
+
+    const unsubAtt = onSnapshot(collection(db, "salesUploads", "att sales", "orders"), (snap) => {
+      setSalesUploadOrders((current) => {
+        const tfiber = current.filter((order) => order.provider !== "ATT");
+        return [...tfiber, ...snap.docs.map((docSnap) => normalizeSalesUploadOrder("att sales", docSnap))];
+      });
+    });
+    const unsubTFiber = onSnapshot(
+      collection(db, "salesUploads", "t-fiber sales", "orders"),
+      (snap) => {
+        setSalesUploadOrders((current) => {
+          const att = current.filter((order) => order.provider === "ATT");
+          return [...att, ...snap.docs.map((docSnap) => normalizeSalesUploadOrder("t-fiber sales", docSnap))];
+        });
+      }
+    );
+
+    return () => {
+      unsubAtt();
+      unsubTFiber();
+    };
+  }, [isDemo]);
 
   const headerDates = useMemo(() => {
     const start = parseLocalISO(weekISO);
