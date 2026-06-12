@@ -142,7 +142,7 @@ export default function Navbar({
     <header className="sticky top-0 z-50 px-4 pt-4 sm:px-6">
       <div
         className={clsx(
-          "mx-auto max-w-7xl overflow-hidden rounded-[30px] border border-white/60 bg-white/72 backdrop-blur-2xl",
+          "mx-auto max-w-7xl overflow-visible rounded-[30px] border border-white/60 bg-white/72 backdrop-blur-2xl",
           scrolled
             ? "shadow-[0_24px_56px_rgba(9,20,35,0.14)]"
             : "shadow-[0_16px_40px_rgba(9,20,35,0.08)]"
