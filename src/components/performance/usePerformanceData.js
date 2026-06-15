@@ -7,6 +7,7 @@ import { getDemoPerformanceData } from "../../demo/demoData.js";
 const clean = (value) => String(value ?? "").trim();
 
 const normalizeText = (value) => clean(value).toLowerCase().replace(/\s+/g, " ");
+const normalizeManagerName = (value) => normalizeText(value);
 
 const buildRelativeDateRange = (days) => {
   const now = new Date();
@@ -551,6 +552,18 @@ const buildKnockTotalsByRep = (dates, weekMap) => {
   return totals;
 };
 
+const buildManagerOptionsFromWeeks = (weekMap) => {
+  const managers = new Set();
+  weekMap.forEach((reps) => {
+    reps.forEach((rep) => {
+      if (rep.deleted) return;
+      const manager = clean(rep.manager);
+      if (manager) managers.add(manager);
+    });
+  });
+  return Array.from(managers);
+};
+
 const mergeOrdersByUid = (...orderSets) => {
   const merged = new Map();
 
@@ -574,7 +587,7 @@ const buildScopedRepNames = (weekMap, managerFilter, repNameFilter) => {
   const repNames = new Set();
   weekMap.forEach((reps) => {
     reps.forEach((rep) => {
-      if (clean(rep.manager) !== clean(managerFilter)) return;
+      if (normalizeManagerName(rep.manager) !== normalizeManagerName(managerFilter)) return;
       const normalizedName = normalizeText(rep.name);
       if (normalizedName) repNames.add(normalizedName);
     });
@@ -647,7 +660,10 @@ export function usePerformanceData(dateRange, scope = {}) {
 
       setState({
         loading: false,
-        data: buildDashboardData(orders, knockTotalsByRep, scopedOrders),
+        data: {
+          ...buildDashboardData(orders, knockTotalsByRep, scopedOrders),
+          managerOptions: buildManagerOptionsFromWeeks(weekMap),
+        },
         error: null,
       });
     };
@@ -670,10 +686,10 @@ export function usePerformanceData(dateRange, scope = {}) {
       : [];
     const weekUnsubs = weekISOs.map((weekISO) =>
       onSnapshot(
-        managerFilter || repNameFilter
+        repNameFilter
           ? query(
               collection(db, "weeks", weekISO, "reps"),
-              where(repNameFilter ? "name" : "manager", "==", repNameFilter || managerFilter)
+              where("name", "==", repNameFilter)
             )
           : collection(db, "weeks", weekISO, "reps"),
         (snap) => {

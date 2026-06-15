@@ -87,6 +87,20 @@ function sanitizeFilename(value) {
     .replace(/^-+|-+$/g, "") || "all-managers";
 }
 
+function uniqueSortedValues(values) {
+  const seen = new Set();
+  return values
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean)
+    .filter((value) => {
+      const key = value.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+}
+
 function isAffiliateManaged(rep) {
   return (rep?.manager || "").trim().toLowerCase() === "affiliate";
 }
@@ -227,6 +241,14 @@ export default function WeeklyTable({
   const canManageReps = canEdit || canEditReps;
   const canUseSalesAdminTools =
     metricKey === "sales" && isEmailAllowed(teamManagerAllowlist, user?.email);
+  const repManagerOptions = useMemo(
+    () => uniqueSortedValues(rows.map((row) => row.manager)),
+    [rows]
+  );
+  const repTeamOptions = useMemo(
+    () => uniqueSortedValues(rows.map((row) => row.team)),
+    [rows]
+  );
 
   // Header dates for Mon..Sun
   const headerDates = useMemo(() => {
@@ -299,6 +321,7 @@ export default function WeeklyTable({
       ...r,
       sales: Array.isArray(r.sales) && r.sales.length === 7 ? r.sales : Array(7).fill(0),
       knocks: Array.isArray(r.knocks) && r.knocks.length === 7 ? r.knocks : Array(7).fill(0),
+      aliases: Array.isArray(r.aliases) ? r.aliases : [],
       salesGoal: clampNum(r.salesGoal),
       knocksGoal: clampNum(r.knocksGoal),
       deleted: !!r.deleted,
@@ -360,6 +383,7 @@ export default function WeeklyTable({
             email: data.email || "",
             manager: data.manager || "",
             team: data.team || "",
+            aliases: Array.isArray(data.aliases) ? data.aliases : [],
             salesGoal: data.salesGoal,
             knocksGoal: data.knocksGoal,
             sales: Array(7).fill(0),
@@ -556,6 +580,7 @@ export default function WeeklyTable({
       email: rep.email || "",
       manager: rep.manager || "",
       team: rep.team || "",
+      aliases: Array.isArray(rep.aliases) ? rep.aliases : [],
       salesGoal: clampNum(rep.salesGoal),
       knocksGoal: clampNum(rep.knocksGoal),
     };
@@ -598,6 +623,7 @@ export default function WeeklyTable({
         email: rep.email || "",
         manager: rep.manager || "",
         team: rep.team || "",
+        aliases: Array.isArray(rep.aliases) ? rep.aliases : [],
         [goalKey]: value === "" ? 0 : clampNum(value),
       },
       { merge: true }
@@ -1332,7 +1358,7 @@ export default function WeeklyTable({
 
         for (const [repMatchKey, knockData] of Object.entries(knocksForDate)) {
           const matchingRep = allReps.find(
-            (rep) => getRepMatchKey(rep.name) === repMatchKey
+            (rep) => repMatchesReportKey(rep, repMatchKey)
           );
 
           if (!matchingRep) {
@@ -1363,6 +1389,7 @@ export default function WeeklyTable({
                 name: cleanCell(repData.name ?? matchingRep.name),
                 manager: cleanCell(repData.manager ?? matchingRep.manager),
                 team: cleanCell(repData.team ?? matchingRep.team),
+                aliases: Array.isArray(repData.aliases) ? repData.aliases : matchingRep.aliases || [],
                 salesGoal: clampNum(repData.salesGoal ?? matchingRep.salesGoal),
                 knocksGoal: clampNum(repData.knocksGoal ?? matchingRep.knocksGoal),
                 knocks,
@@ -2060,6 +2087,8 @@ export default function WeeklyTable({
         base={base} // "weeks" or "knocks"
         weekISO={weekISO}
         reps={repToEdit ? [repToEdit] : []}
+        managerOptions={repManagerOptions}
+        teamOptions={repTeamOptions}
       />
 
       <TeamManagerModal
@@ -2715,6 +2744,18 @@ function normalizeRepName(value) {
 
 function getRepMatchKey(value) {
   return normalizeRepName(value);
+}
+
+function getRepAliasValues(rep) {
+  if (Array.isArray(rep?.aliases)) return rep.aliases;
+  if (Array.isArray(rep?.reportAliases)) return rep.reportAliases;
+  return [];
+}
+
+function repMatchesReportKey(rep, reportKey) {
+  return [rep?.name, ...getRepAliasValues(rep)].some(
+    (value) => getRepMatchKey(value) === reportKey
+  );
 }
 
 function formatDateId(date) {

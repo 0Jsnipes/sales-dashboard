@@ -356,6 +356,15 @@ const selectComparisonMetrics = (sourceData, providerFilter, selectedRep, select
     ) || { ...emptyMetrics, id: selectedRep, name: selectedRepName || "Selected rep" }
   );
 };
+const toNameTitleCase = (value) =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\b([a-z])/g, (match) => match.toUpperCase());
+const normalizeManagerLabel = (value) =>
+  toNameTitleCase(value)
+    .replace(/\bSub\b/g, "Sub")
+    .replace(/\bCj\b/g, "CJ");
 const DATE_RANGE_STORAGE_KEY = "ab-performance-date-range";
 const getStoredDateRange = () => {
   if (typeof window === "undefined") return createRelativeDateWindow(7);
@@ -461,17 +470,24 @@ export default function PerformanceDashboard() {
   const [providerFilter, setProviderFilter] = useState("both");
   const [trackerProviderFilter, setTrackerProviderFilter] = useState("both");
   const [comparisonSelection, setComparisonSelection] = useState(getDefaultComparisonSelections);
-  const [managerOptions, setManagerOptions] = useState([]);
 
   const effectiveScope = useMemo(
     () => ({
       ...scope,
-      managerFilter: scope.lockManagerFilter ? scope.managerFilter || "" : managerFilter,
+      managerFilter: scope.lockManagerFilter ? normalizeManagerLabel(scope.managerFilter || "") : managerFilter,
     }),
     [managerFilter, scope]
   );
+  const managerOptionsScope = useMemo(
+    () => ({
+      ...scope,
+      managerFilter: scope.lockManagerFilter ? normalizeManagerLabel(scope.managerFilter || "") : "",
+    }),
+    [scope]
+  );
 
   const { data, loading, error } = usePerformanceData(dateRange, effectiveScope);
+  const { data: managerOptionsData } = usePerformanceData(dateRange, managerOptionsScope);
   const comparisonRanges = useMemo(
     () => createComparisonRanges(comparisonSelection),
     [comparisonSelection]
@@ -487,18 +503,48 @@ export default function PerformanceDashboard() {
     () => filterDataByProvider(dashboardData, providerFilter),
     [dashboardData, providerFilter]
   );
+  const managerOptions = useMemo(
+    () => {
+      const optionData = filterDataByProvider(managerOptionsData || emptyData, providerFilter);
+      const optionsByKey = new Map();
+      const addOption = (value) => {
+        const label = normalizeManagerLabel(value);
+        if (!label) return;
+        const key = label.toLowerCase();
+        if (!optionsByKey.has(key)) optionsByKey.set(key, label);
+      };
+
+      (optionData.orders || []).forEach((order) => addOption(order.manager));
+      (optionData.reps || []).forEach((rep) => addOption(rep.manager));
+      (managerOptionsData?.managerOptions || []).forEach(addOption);
+
+      return Array.from(optionsByKey.values()).sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: "base" })
+      );
+    },
+    [managerOptionsData, providerFilter]
+  );
 
   useEffect(() => {
     window.localStorage.setItem(DATE_RANGE_STORAGE_KEY, JSON.stringify(dateRange));
   }, [dateRange]);
 
   useEffect(() => {
-    setManagerFilter(scope.managerFilter || "");
+    setManagerFilter(normalizeManagerLabel(scope.managerFilter || ""));
   }, [scope.managerFilter]);
 
   useEffect(() => {
     setTrackerProviderFilter(providerFilter);
   }, [providerFilter]);
+
+  useEffect(() => {
+    if (scope.lockManagerFilter || !managerFilter || !managerOptionsData) return;
+    if (!managerOptions.includes(managerFilter)) {
+      setManagerFilter("");
+      setSelectedRep(null);
+      setSelectedRepSnapshot(null);
+    }
+  }, [managerFilter, managerOptions, managerOptionsData, scope.lockManagerFilter]);
 
   useEffect(() => {
     if (!isPrimarySuperAdmin) return undefined;
@@ -518,24 +564,6 @@ export default function PerformanceDashboard() {
 
     return () => unsubscribe();
   }, [isPrimarySuperAdmin]);
-
-  useEffect(() => {
-    if (scope.hideFilters) return undefined;
-
-    const unsubscribe = onSnapshot(collection(db, "roster"), (snapshot) => {
-      const options = Array.from(
-        new Set(
-          snapshot.docs
-            .map((docRef) => String(docRef.data()?.manager || "").trim())
-            .filter(Boolean)
-        )
-      ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-
-      setManagerOptions(options);
-    });
-
-    return () => unsubscribe();
-  }, [scope.hideFilters]);
 
   useEffect(() => {
     if (!effectiveScope.repNameFilter || filteredDashboardData.reps.length === 0) return;

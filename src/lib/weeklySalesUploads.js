@@ -25,6 +25,12 @@ export function normalizeSalesRepKey(value) {
     .trim();
 }
 
+function getRepAliases(row) {
+  if (Array.isArray(row?.aliases)) return row.aliases;
+  if (Array.isArray(row?.reportAliases)) return row.reportAliases;
+  return [];
+}
+
 export function normalizeSalesUploadOrder(groupId, docSnap) {
   const data = docSnap.data();
   const rawData = data.rawData || {};
@@ -71,15 +77,17 @@ export function buildWeeklySalesRows(baseRows, salesOrders, weekISO) {
   weekEnd.setDate(weekStart.getDate() + 6);
   const weekEndId = toDateId(weekEnd);
 
-  const rowsByRep = new Map(
-    (baseRows || []).map((row) => [
-      normalizeSalesRepKey(row.name),
-      {
-        ...row,
-        sales: Array(7).fill(0),
-      },
-    ])
-  );
+  const rowsByRep = new Map();
+  (baseRows || []).forEach((row) => {
+    const normalizedRow = {
+      ...row,
+      sales: Array(7).fill(0),
+    };
+    [row.name, ...getRepAliases(row)].forEach((name) => {
+      const key = normalizeSalesRepKey(name);
+      if (key) rowsByRep.set(key, normalizedRow);
+    });
+  });
 
   (salesOrders || []).forEach((order) => {
     if (!order.orderDateId || order.orderDateId < weekISO || order.orderDateId > weekEndId) {
