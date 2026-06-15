@@ -6,6 +6,7 @@ import {
   doc,
   onSnapshot,
   collection,
+  collectionGroup,
   documentId,
   query,
   setDoc,
@@ -17,6 +18,7 @@ import {
 } from "firebase/firestore";
 import * as XLSX from "xlsx";
 import { db } from "../lib/firebase";
+import { isEmailAllowed, teamManagerAllowlist } from "../lib/access.js";
 import { DAYS, prevWeekISO } from "../utils/weeks.js";
 import { buildWeeklySalesRows, normalizeSalesUploadOrder } from "../lib/weeklySalesUploads.js";
 import AddRepsModal from "./AddRepsModal";
@@ -75,6 +77,14 @@ function escapeCsv(value) {
     return `"${stringValue.replace(/"/g, '""')}"`;
   }
   return stringValue;
+}
+
+function sanitizeFilename(value) {
+  return String(value || "all-managers")
+    .trim()
+    .replace(/[<>:"/\\|?*]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/^-+|-+$/g, "") || "all-managers";
 }
 
 function isAffiliateManaged(rep) {
@@ -190,12 +200,18 @@ export default function WeeklyTable({
   const [repToEdit, setRepToEdit] = useState(null); // <-- per-rep edit
   const [highlightedRepId, setHighlightedRepId] = useState(null);
   const [inactiveModalOpen, setInactiveModalOpen] = useState(false);
+  const [teamManagerOpen, setTeamManagerOpen] = useState(false);
+  const [teamManagerSaving, setTeamManagerSaving] = useState(false);
   const [importStatus, setImportStatus] = useState("");
   const [activeDropzone, setActiveDropzone] = useState("");
   const [mobileSalesUploadOpen, setMobileSalesUploadOpen] = useState(false);
   const [dbUploadDatesOpen, setDbUploadDatesOpen] = useState(false);
   const [dbUploadDateInput, setDbUploadDateInput] = useState("");
   const [dbUploadDateIds, setDbUploadDateIds] = useState([]);
+  const [uploadedStyleOpen, setUploadedStyleOpen] = useState(false);
+  const [uploadedStyleAllTime, setUploadedStyleAllTime] = useState(false);
+  const [uploadedStyleDateInput, setUploadedStyleDateInput] = useState("");
+  const [uploadedStyleDateIds, setUploadedStyleDateIds] = useState([]);
   const attDbFileInputRef = useRef(null);
   const tFiberDbFileInputRef = useRef(null);
   const knockFileInputRef = useRef(null);
@@ -208,6 +224,8 @@ export default function WeeklyTable({
   );
   const showHeaderActions = canEdit || rows.length > 0;
   const canManageReps = canEdit || canEditReps;
+  const canUseSalesAdminTools =
+    metricKey === "sales" && isEmailAllowed(teamManagerAllowlist, user?.email);
 
   // Header dates for Mon..Sun
   const headerDates = useMemo(() => {
@@ -802,6 +820,222 @@ export default function WeeklyTable({
     URL.revokeObjectURL(url);
   };
 
+  const getUploadedStyleSalesOrders = () => {
+    const weekStart = parseLocalISO(weekISO);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    const weekEndId = formatDateId(weekEnd);
+    const selectedDateSet = new Set(uploadedStyleDateIds);
+    const visibleRepKeys = new Set(rows.map((row) => getRepMatchKey(row.name)).filter(Boolean));
+
+    return salesUploadOrders.filter((order) => {
+      if (!order.orderDateId) {
+        return false;
+      }
+      if (uploadedStyleDateIds.length > 0 && !selectedDateSet.has(order.orderDateId)) {
+        return false;
+      }
+      if (!uploadedStyleAllTime && uploadedStyleDateIds.length === 0 && (order.orderDateId < weekISO || order.orderDateId > weekEndId)) {
+        return false;
+      }
+      const repKey = getRepMatchKey(order.repName);
+      return !visibleRepKeys.size || visibleRepKeys.has(repKey);
+    });
+  };
+
+  const downloadUploadedStyleExcel = () => {
+    if (metricKey !== "sales") return;
+    const weekOrders = getUploadedStyleSalesOrders();
+    if (!weekOrders.length) {
+      window.alert("No uploaded sales rows found for the selected export dates and filters.");
+      return;
+    }
+
+    const workbook = XLSX.utils.book_new();
+    const providers = [
+      { key: "ATT", sheetName: "ATT" },
+      { key: "T-Fiber", sheetName: "T-Fiber" },
+    ];
+
+    providers.forEach(({ key, sheetName }) => {
+      const providerOrders = weekOrders
+        .filter((order) => order.provider === key)
+        .sort((a, b) =>
+          (b.orderDateId || "").localeCompare(a.orderDateId || "") ||
+          String(b.uid || "").localeCompare(String(a.uid || ""))
+        );
+      if (!providerOrders.length) return;
+
+      const headers = Array.from(
+        new Set(
+          providerOrders.flatMap((order) => Object.keys(order.rawData || {}))
+        )
+      );
+      const orderDateHeader = headers.find((header) =>
+        key === "ATT" ? header === "OrderDate" : header === "Order Date"
+      );
+      const orderedHeaders = orderDateHeader
+        ? [orderDateHeader, ...headers.filter((header) => header !== orderDateHeader)]
+        : headers;
+      const exportRows = providerOrders.map((order) => {
+        const row = {};
+        orderedHeaders.forEach((header) => {
+          row[header] = order.rawData?.[header] ?? "";
+        });
+        return row;
+      });
+      const sheet = XLSX.utils.json_to_sheet(exportRows, { header: orderedHeaders });
+      XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
+    });
+
+    if (!workbook.SheetNames.length) {
+      window.alert("No uploaded sales rows with original fields were found for the current filters.");
+      return;
+    }
+
+    const managerLabel =
+      managerFilter && managerFilter !== "All"
+        ? managerFilter
+        : rows.length === 1
+          ? rows[0].manager || "all-managers"
+          : "all-managers";
+    XLSX.writeFile(workbook, `${sanitizeFilename(managerLabel)}-orders to date.xlsx`);
+  };
+
+  const saveTeamManagers = async (drafts) => {
+    if (!canUseSalesAdminTools) return;
+    const changedRows = rows.filter((row) => {
+      const nextManager = cleanCell(drafts[row.id]);
+      return nextManager !== cleanCell(row.manager);
+    });
+
+    if (!changedRows.length) {
+      setTeamManagerOpen(false);
+      return;
+    }
+
+    setTeamManagerSaving(true);
+    try {
+      const operations = [];
+      const seenRefs = new Set();
+      const addUpdate = (ref, manager) => {
+        const path = ref.path;
+        if (seenRefs.has(path)) return;
+        seenRefs.add(path);
+        operations.push((batch) =>
+          batch.set(
+            ref,
+            {
+              manager,
+              updatedAt: serverTimestamp(),
+              updatedBy: user?.uid || null,
+            },
+            { merge: true }
+          )
+        );
+      };
+
+      for (const row of changedRows) {
+        const nextManager = cleanCell(drafts[row.id]);
+        const repQueries = [];
+
+        if (row.name) {
+          repQueries.push(query(collectionGroup(db, "reps"), where("name", "==", row.name)));
+        }
+        if (row.email) {
+          repQueries.push(query(collectionGroup(db, "reps"), where("email", "==", row.email)));
+        }
+
+        addUpdate(doc(db, base, weekISO, "reps", row.id), nextManager);
+
+        for (const repQuery of repQueries) {
+          const repSnap = await getDocs(repQuery);
+          repSnap.docs
+            .filter((docSnap) => docSnap.ref.path.startsWith(`${base}/`))
+            .forEach((docSnap) => addUpdate(docSnap.ref, nextManager));
+        }
+
+        const rosterQueries = [];
+        if (row.name) {
+          rosterQueries.push(query(collection(db, "roster"), where("name", "==", row.name)));
+        }
+        if (row.email) {
+          rosterQueries.push(query(collection(db, "roster"), where("email", "==", row.email)));
+        }
+
+        for (const rosterQuery of rosterQueries) {
+          const rosterSnap = await getDocs(rosterQuery);
+          rosterSnap.docs.forEach((rosterDoc) => addUpdate(rosterDoc.ref, nextManager));
+        }
+
+        const salesUploadQueries = [];
+        if (row.name) {
+          salesUploadQueries.push({
+            ref: query(
+              collection(db, "salesUploads", ATT_DB_GROUP, "orders"),
+              where("repName", "==", row.name)
+            ),
+            patch: {
+              manager: nextManager,
+              agentManager: nextManager,
+              rawData: { AgentManager: nextManager },
+              data: { agentManager: nextManager },
+            },
+          });
+          salesUploadQueries.push({
+            ref: query(
+              collection(db, "salesUploads", ATT_DB_GROUP, "orders"),
+              where("salespersonName", "==", row.name)
+            ),
+            patch: {
+              manager: nextManager,
+              agentManager: nextManager,
+              rawData: { AgentManager: nextManager },
+              data: { agentManager: nextManager },
+            },
+          });
+          salesUploadQueries.push({
+            ref: query(
+              collection(db, "salesUploads", T_FIBER_DB_GROUP, "orders"),
+              where("repName", "==", row.name)
+            ),
+            patch: {
+              manager: nextManager,
+              rawData: { Manager: nextManager },
+              data: { manager: nextManager },
+            },
+          });
+        }
+
+        for (const uploadQuery of salesUploadQueries) {
+          const uploadSnap = await getDocs(uploadQuery.ref);
+          uploadSnap.docs.forEach((uploadDoc) => {
+            const path = uploadDoc.ref.path;
+            if (seenRefs.has(path)) return;
+            seenRefs.add(path);
+            operations.push((batch) =>
+              batch.set(
+                uploadDoc.ref,
+                {
+                  ...uploadQuery.patch,
+                  updatedAt: serverTimestamp(),
+                  updatedBy: user?.uid || null,
+                },
+                { merge: true }
+              )
+            );
+          });
+        }
+      }
+
+      await commitBatchOperations(operations, 350);
+
+      setTeamManagerOpen(false);
+    } finally {
+      setTeamManagerSaving(false);
+    }
+  };
+
   const addDbUploadDate = () => {
     if (!dbUploadDateInput) return;
     setDbUploadDateIds((current) =>
@@ -812,6 +1046,19 @@ export default function WeeklyTable({
 
   const removeDbUploadDate = (dateId) => {
     setDbUploadDateIds((current) => current.filter((item) => item !== dateId));
+  };
+
+  const addUploadedStyleDate = () => {
+    if (!uploadedStyleDateInput) return;
+    setUploadedStyleDateIds((current) =>
+      Array.from(new Set([...current, uploadedStyleDateInput])).sort()
+    );
+    setUploadedStyleDateInput("");
+    setUploadedStyleAllTime(false);
+  };
+
+  const removeUploadedStyleDate = (dateId) => {
+    setUploadedStyleDateIds((current) => current.filter((item) => item !== dateId));
   };
 
   const importTFiberSalesToDb = async (file) => {
@@ -1316,6 +1563,118 @@ export default function WeeklyTable({
               <DownloadIcon />
               <span>Download Excel</span>
             </button>
+            {canUseSalesAdminTools ? (
+              <div className="relative">
+                <button
+                  className="btn btn-outline btn-sm"
+                  onClick={() => setUploadedStyleOpen((current) => !current)}
+                  type="button"
+                  aria-expanded={uploadedStyleOpen}
+                >
+                  <DownloadIcon />
+                  <span>Uploaded Style</span>
+                </button>
+
+                {uploadedStyleOpen ? (
+                  <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-[min(88vw,360px)] rounded-[18px] border border-slate-200 bg-white p-3 text-sm shadow-[0_18px_42px_rgba(15,23,42,0.16)]">
+                    <div className="grid gap-2">
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${!uploadedStyleAllTime && uploadedStyleDateIds.length === 0 ? "btn-primary" : "btn-outline"}`}
+                        onClick={() => {
+                          setUploadedStyleAllTime(false);
+                          setUploadedStyleDateIds([]);
+                        }}
+                      >
+                        Current Week
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${uploadedStyleAllTime ? "btn-primary" : "btn-outline"}`}
+                        onClick={() => {
+                          setUploadedStyleAllTime(true);
+                          setUploadedStyleDateIds([]);
+                        }}
+                      >
+                        All Time
+                      </button>
+                    </div>
+
+                    <div className="mt-3 flex items-center gap-2">
+                      <input
+                        type="date"
+                        className="input input-bordered input-sm h-9 min-h-9 min-w-0 flex-1"
+                        value={uploadedStyleDateInput}
+                        onChange={(event) => setUploadedStyleDateInput(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            addUploadedStyleDate();
+                          }
+                        }}
+                        aria-label="Uploaded style export date"
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={addUploadedStyleDate}
+                        disabled={!uploadedStyleDateInput}
+                      >
+                        Add
+                      </button>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {uploadedStyleDateIds.length > 0 ? (
+                        uploadedStyleDateIds.map((dateId) => (
+                          <button
+                            key={dateId}
+                            type="button"
+                            className="inline-flex h-8 items-center gap-1 rounded-full border border-slate-300 bg-slate-50 px-2.5 text-[11px] font-semibold text-slate-800"
+                            onClick={() => removeUploadedStyleDate(dateId)}
+                            title="Remove export date"
+                          >
+                            <span>{dateId}</span>
+                            <span aria-hidden="true">x</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                          {uploadedStyleAllTime
+                            ? "Export will include every uploaded order in the current filters."
+                            : "No dates selected. Export will use the current week."}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-3 flex justify-end gap-2">
+                      {uploadedStyleDateIds.length > 0 || uploadedStyleAllTime ? (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => {
+                            setUploadedStyleAllTime(false);
+                            setUploadedStyleDateIds([]);
+                          }}
+                        >
+                          Reset
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={() => {
+                          downloadUploadedStyleExcel();
+                          setUploadedStyleOpen(false);
+                        }}
+                      >
+                        Download
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {canEdit && metricKey === "sales" && (
               <>
                 <div className="relative">
@@ -1460,6 +1819,11 @@ export default function WeeklyTable({
               <button className="btn btn-primary btn-sm" onClick={() => setOpenAdd(true)} type="button">
                 <PlusIcon />
                 <span>Add Reps</span>
+              </button>
+            ) : null}
+            {canUseSalesAdminTools ? (
+              <button className="btn btn-outline btn-sm" onClick={() => setTeamManagerOpen(true)} type="button">
+                Team Managers
               </button>
             ) : null}
           </div>
@@ -1681,6 +2045,14 @@ export default function WeeklyTable({
         reps={repToEdit ? [repToEdit] : []}
       />
 
+      <TeamManagerModal
+        open={teamManagerOpen}
+        rows={rows}
+        saving={teamManagerSaving}
+        onClose={() => setTeamManagerOpen(false)}
+        onSave={saveTeamManagers}
+      />
+
       <Modal
         open={inactiveModalOpen}
         onClose={() => setInactiveModalOpen(false)}
@@ -1745,6 +2117,91 @@ export default function WeeklyTable({
         </div>
       </Modal>
     </section>
+  );
+}
+
+function TeamManagerModal({ open, rows, saving, onClose, onSave }) {
+  const [drafts, setDrafts] = useState({});
+
+  useEffect(() => {
+    if (!open) return;
+    setDrafts(Object.fromEntries((rows || []).map((row) => [row.id, row.manager || ""])));
+  }, [open, rows]);
+
+  const sortedRows = useMemo(
+    () =>
+      [...(rows || [])].sort((a, b) =>
+        (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })
+      ),
+    [rows]
+  );
+
+  return (
+    <Modal open={open} onClose={onClose} maxWidth="max-w-4xl">
+      <div className="space-y-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Sales Admin
+            </div>
+            <h3 className="mt-1 text-xl font-semibold text-slate-950">Team Managers</h3>
+          </div>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} disabled={saving}>
+            Close
+          </button>
+        </div>
+
+        <div className="max-h-[62vh] overflow-auto rounded-2xl border border-slate-200">
+          <table className="table table-sm w-full">
+            <thead className="bg-slate-100/90 text-slate-700">
+              <tr>
+                <th>Rep</th>
+                <th>Location</th>
+                <th>Manager</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRows.length > 0 ? (
+                sortedRows.map((row) => (
+                  <tr key={`team-manager-${row.id}`}>
+                    <td className="font-semibold text-slate-900">{row.name || "Unnamed rep"}</td>
+                    <td>{row.team || ""}</td>
+                    <td>
+                      <input
+                        type="text"
+                        className="input input-bordered input-sm w-full"
+                        value={drafts[row.id] ?? ""}
+                        onChange={(event) =>
+                          setDrafts((current) => ({
+                            ...current,
+                            [row.id]: event.target.value,
+                          }))
+                        }
+                      />
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={3} className="py-8 text-center text-sm text-slate-500">
+                    No reps found for the current filters.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => onSave(drafts)} disabled={saving}>
+            {saving ? "Saving..." : "Save Managers"}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

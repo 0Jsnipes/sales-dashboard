@@ -32,6 +32,7 @@ export function normalizeSalesUploadOrder(groupId, docSnap) {
   if (groupId === "att sales") {
     return {
       id: `att:${docSnap.id}`,
+      uid: data.uid || data.orderId || docSnap.id,
       provider: "ATT",
       repName:
         data.repName ||
@@ -42,11 +43,14 @@ export function normalizeSalesUploadOrder(groupId, docSnap) {
         "",
       orderDateId: data.orderDateId || "",
       saleCount: Number(data.saleCount || 0),
+      manager: data.manager || data.agentManager || rawData.AgentManager || "",
+      rawData,
     };
   }
 
   return {
     id: `tfiber:${docSnap.id}`,
+    uid: data.uid || data.altOrderId || docSnap.id,
     provider: "T-Fiber",
     repName:
       data.repName ||
@@ -56,6 +60,8 @@ export function normalizeSalesUploadOrder(groupId, docSnap) {
       "",
     orderDateId: data.orderDateId || "",
     saleCount: 1,
+    manager: data.manager || rawData.Manager || "",
+    rawData,
   };
 }
 

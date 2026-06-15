@@ -10,6 +10,8 @@ export const performanceAllowlist = new Set(
 
 export const gogoFormatterAllowlist = new Set(["snipes1995@gmail.com"].map(normalizeEmail));
 
+export const teamManagerAllowlist = new Set(["snipes1995@gmail.com"].map(normalizeEmail));
+
 export const rosterViewAllowlist = new Set(
   [
     "snipes1995@gmail.com",

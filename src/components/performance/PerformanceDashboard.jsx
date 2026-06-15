@@ -51,8 +51,9 @@ const emptyData = {
 };
 
 const formatPct = (value) => `${Number(value || 0).toFixed(1)}%`;
-const CONTROL_RANGE_PRESETS = ["currentWeek", "mtd", "ytd", "7d", "30d", "90d", "custom"];
-const TRACKER_RANGES = ["currentWeek", "mtd", "ytd", "7d", "30d", "90d"];
+const PROVIDER_FILTERS = ["both", "ATT", "T-Fiber"];
+const CONTROL_RANGE_PRESETS = ["currentWeek", "lastWeek", "mtd", "ytd", "7d", "30d", "90d", "custom"];
+const TRACKER_RANGES = ["currentMonth", "currentWeek", "lastWeek", "mtd", "ytd", "7d", "30d", "90d", "custom"];
 const formatDateLabel = (value) => {
   if (!value) return "No due date";
   const parsed = new Date(`${value}T00:00:00`);
@@ -80,6 +81,17 @@ const shiftDateId = (days) => {
   const day = String(current.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 };
+const addDays = (date, days) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
+const toDateId = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 const createRelativeDateWindow = (days) => ({
   startDate: shiftDateId(-(days - 1)),
   endDate: todayDateId(),
@@ -97,6 +109,30 @@ const createCurrentWeekWindow = () => {
     endDate: todayDateId(),
   };
 };
+const createLastWeekWindow = () => {
+  const now = new Date();
+  const current = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const day = (current.getDay() + 6) % 7;
+  const start = addDays(current, -day - 7);
+  const end = addDays(start, 6);
+  return {
+    startDate: toDateId(start),
+    endDate: toDateId(end),
+  };
+};
+const createWeekWindowFromStart = (startDateId) => {
+  const start = new Date(`${startDateId}T00:00:00`);
+  if (Number.isNaN(start.getTime())) return createLastWeekWindow();
+  return {
+    startDate: toDateId(start),
+    endDate: toDateId(addDays(start, 6)),
+  };
+};
+const createPreviousWeekWindow = (startDateId) => {
+  const start = new Date(`${startDateId}T00:00:00`);
+  if (Number.isNaN(start.getTime())) return createWeekWindowFromStart(createLastWeekWindow().startDate);
+  return createWeekWindowFromStart(toDateId(addDays(start, -7)));
+};
 const createMonthToDateWindow = () => {
   const now = new Date();
   const current = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -104,6 +140,30 @@ const createMonthToDateWindow = () => {
     startDate: `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, "0")}-01`,
     endDate: todayDateId(),
   };
+};
+const createCurrentMonthWindow = () => {
+  const now = new Date();
+  const current = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(current.getFullYear(), current.getMonth() + 1, 0);
+  return {
+    startDate: `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, "0")}-01`,
+    endDate: toDateId(end),
+  };
+};
+const createMonthWindow = (monthId) => {
+  const [year, month] = String(monthId || "").split("-").map(Number);
+  if (!year || !month) return createCurrentMonthWindow();
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 0);
+  return {
+    startDate: toDateId(start),
+    endDate: toDateId(end),
+  };
+};
+const shiftMonthId = (monthId, offset) => {
+  const [year, month] = String(monthId || "").split("-").map(Number);
+  const date = year && month ? new Date(year, month - 1 + offset, 1) : new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 };
 const createYearToDateWindow = () => {
   const now = new Date();
@@ -113,8 +173,19 @@ const createYearToDateWindow = () => {
     endDate: todayDateId(),
   };
 };
+const createYearWindow = (yearValue) => {
+  const year = Number(yearValue);
+  const currentYear = new Date().getFullYear();
+  const safeYear = Number.isFinite(year) && year >= 1900 ? year : currentYear;
+  return {
+    startDate: `${safeYear}-01-01`,
+    endDate: `${safeYear}-12-31`,
+  };
+};
 const createDateWindowFromPreset = (preset) => {
   if (preset === "currentWeek") return createCurrentWeekWindow();
+  if (preset === "lastWeek") return createLastWeekWindow();
+  if (preset === "currentMonth") return createCurrentMonthWindow();
   if (preset === "mtd") return createMonthToDateWindow();
   if (preset === "ytd") return createYearToDateWindow();
   if (preset === "30d") return createRelativeDateWindow(30);
@@ -127,6 +198,8 @@ const detectDatePreset = (range) => {
     candidate.startDate === range.startDate && candidate.endDate === range.endDate;
 
   if (matches(createCurrentWeekWindow())) return "currentWeek";
+  if (matches(createLastWeekWindow())) return "lastWeek";
+  if (matches(createCurrentMonthWindow())) return "currentMonth";
   if (matches(createMonthToDateWindow())) return "mtd";
   if (matches(createYearToDateWindow())) return "ytd";
   if (matches(createRelativeDateWindow(7))) return "7d";
@@ -134,8 +207,7 @@ const detectDatePreset = (range) => {
   if (matches(createRelativeDateWindow(90))) return "90d";
   return "custom";
 };
-const buildTrackerRange = (range) => {
-  const window = createDateWindowFromPreset(range);
+const buildExclusiveRange = (window) => {
   const endExclusive = new Date(`${window.endDate}T00:00:00`);
   endExclusive.setDate(endExclusive.getDate() + 1);
   return {
@@ -145,6 +217,10 @@ const buildTrackerRange = (range) => {
     ).padStart(2, "0")}`,
   };
 };
+const buildTrackerRange = (range) => buildExclusiveRange(range);
+const getTrackerDateId = (order) => order.dueDateId || order.orderDateId || "";
+const providerMatches = (order, providerFilter) =>
+  providerFilter === "both" || order.provider === providerFilter;
 
 const buildInstallTrackerMetrics = (orders) => {
   const todayId = todayDateId();
@@ -179,6 +255,107 @@ const buildInstallTrackerMetrics = (orders) => {
     }
   );
 };
+const buildProviderMetrics = (orders, totalKnocks = 0) => {
+  const todayId = todayDateId();
+  const metrics = {
+    ...emptyMetrics,
+    totalKnocks,
+  };
+
+  orders.forEach((order) => {
+    metrics.totalSales += order.saleCount || 0;
+    metrics.orderCount += 1;
+    if (order.provider === "ATT") metrics.attSales += order.saleCount || 0;
+    if (order.provider === "T-Fiber") metrics.tFiberSales += order.saleCount || 0;
+    if (order.classifications?.cancelled) metrics.cancellations += 1;
+    if (order.classifications?.churned) metrics.churned += 1;
+    if (order.classifications?.active) metrics.installedActive += 1;
+
+    if (order.classifications?.pending) {
+      if (order.dueDateId && order.dueDateId < todayId) {
+        metrics.pastDueInstalls += 1;
+        if (!metrics.oldestPastDueDateId || order.dueDateId < metrics.oldestPastDueDateId) {
+          metrics.oldestPastDueDateId = order.dueDateId;
+        }
+      } else {
+        metrics.pendingInstalls += 1;
+        if (order.dueDateId && (!metrics.nextPendingDueDateId || order.dueDateId < metrics.nextPendingDueDateId)) {
+          metrics.nextPendingDueDateId = order.dueDateId;
+        }
+      }
+    }
+  });
+
+  const denominator = Math.max(metrics.orderCount, 1);
+  return {
+    ...metrics,
+    cancellationRate: (metrics.cancellations / denominator) * 100,
+    churnRate: (metrics.churned / denominator) * 100,
+    installedActiveRate: (metrics.installedActive / denominator) * 100,
+    pendingInstallRate: (metrics.pendingInstalls / denominator) * 100,
+    conversionRate:
+      metrics.totalKnocks > 0 ? (metrics.totalSales / metrics.totalKnocks) * 100 : 0,
+  };
+};
+const filterDataByProvider = (sourceData, providerFilter) => {
+  if (providerFilter === "both") return sourceData;
+  const orders = (sourceData.orders || []).filter((order) => providerMatches(order, providerFilter));
+  const scopedOrdersAllTime = (sourceData.scopedOrdersAllTime || []).filter((order) =>
+    providerMatches(order, providerFilter)
+  );
+  const reps = (sourceData.reps || [])
+    .map((rep) => {
+      const repOrders = (rep.orders || []).filter((order) => providerMatches(order, providerFilter));
+      const allTimeOrders = (rep.allTimeOrders || []).filter((order) => providerMatches(order, providerFilter));
+      if (!repOrders.length && !allTimeOrders.length) return null;
+
+      const metrics = buildProviderMetrics(repOrders, rep.totalKnocks || 0);
+      const allTimeMetrics = buildProviderMetrics(allTimeOrders, 0);
+      return {
+        ...rep,
+        ...metrics,
+        allTimePendingInstalls: allTimeMetrics.pendingInstalls || 0,
+        allTimePastDueInstalls: allTimeMetrics.pastDueInstalls || 0,
+        allTimeNextPendingDueDateId: allTimeMetrics.nextPendingDueDateId || "",
+        allTimeOldestPastDueDateId: allTimeMetrics.oldestPastDueDateId || "",
+        orders: repOrders,
+        allTimeOrders,
+      };
+    })
+    .filter(Boolean);
+  const companyKPIs = {
+    ...buildProviderMetrics(orders, sourceData.companyKPIs?.totalKnocks || 0),
+    activeReps: reps.filter((rep) => rep.totalSales > 0).length,
+  };
+  const allTimeCompanyMetrics = buildProviderMetrics(scopedOrdersAllTime, 0);
+
+  return {
+    ...sourceData,
+    orders,
+    scopedOrdersAllTime,
+    reps,
+    companyKPIs: {
+      ...companyKPIs,
+      allTimePendingInstalls: allTimeCompanyMetrics.pendingInstalls || 0,
+      allTimePastDueInstalls: allTimeCompanyMetrics.pastDueInstalls || 0,
+      allTimeNextPendingDueDateId: allTimeCompanyMetrics.nextPendingDueDateId || "",
+      allTimeOldestPastDueDateId: allTimeCompanyMetrics.oldestPastDueDateId || "",
+    },
+  };
+};
+const selectComparisonMetrics = (sourceData, providerFilter, selectedRep, selectedRepName) => {
+  const filteredData = filterDataByProvider(sourceData || emptyData, providerFilter);
+  if (!selectedRep) return filteredData.companyKPIs;
+
+  const normalizedSelectedName = normalizeName(selectedRepName);
+  return (
+    filteredData.reps.find(
+      (rep) =>
+        rep.id === selectedRep ||
+        (normalizedSelectedName && normalizeName(rep.name) === normalizedSelectedName)
+    ) || { ...emptyMetrics, id: selectedRep, name: selectedRepName || "Selected rep" }
+  );
+};
 const DATE_RANGE_STORAGE_KEY = "ab-performance-date-range";
 const getStoredDateRange = () => {
   if (typeof window === "undefined") return createRelativeDateWindow(7);
@@ -205,20 +382,60 @@ const getStoredDateRange = () => {
 };
 const formatDateRangeSummary = (range) =>
   range?.startDate && range?.endDate ? `${range.startDate} to ${range.endDate}` : "Custom";
+const monthIdFromDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 const formatRangePresetLabel = (preset) =>
   preset === "currentWeek"
     ? "Current Week"
-    : preset === "mtd"
-      ? "MTD"
-      : preset === "ytd"
-        ? "YTD"
-        : preset === "7d"
-          ? "Last 7 Days"
-          : preset === "30d"
-            ? "Last 30 Days"
-            : preset === "90d"
-              ? "Last 90 Days"
-              : "Custom";
+    : preset === "lastWeek"
+      ? "Last Week"
+      : preset === "currentMonth"
+        ? "Current Month"
+        : preset === "mtd"
+          ? "MTD"
+          : preset === "ytd"
+            ? "YTD"
+            : preset === "7d"
+              ? "Last 7 Days"
+              : preset === "30d"
+                ? "Last 30 Days"
+                : preset === "90d"
+                  ? "Last 90 Days"
+                  : "Custom";
+const getDefaultComparisonSelections = () => {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const currentWeekDay = (today.getDay() + 6) % 7;
+  const previousCompletedWeekStart = addDays(today, -currentWeekDay - 7);
+
+  return {
+    weekStartDate: toDateId(previousCompletedWeekStart),
+    monthId: monthIdFromDate(today),
+    year: String(today.getFullYear()),
+  };
+};
+const createComparisonRanges = ({ weekStartDate, monthId, year }) => {
+  const week = createWeekWindowFromStart(weekStartDate);
+  const previousWeek = createPreviousWeekWindow(week.startDate);
+  const month = createMonthWindow(monthId);
+  const previousMonth = createMonthWindow(shiftMonthId(monthId, -1));
+  const selectedYear = Number(year) || new Date().getFullYear();
+  const yearWindow = createYearWindow(selectedYear);
+  const previousYear = createYearWindow(selectedYear - 1);
+
+  return {
+    week: { label: "Week vs Week", current: week, previous: previousWeek },
+    month: {
+      label: "Month vs Month",
+      current: month,
+      previous: previousMonth,
+    },
+    year: {
+      label: "Year vs Year",
+      current: yearWindow,
+      previous: previousYear,
+    },
+  };
+};
 
 export default function PerformanceDashboard() {
   const authState = useAuthRole();
@@ -239,7 +456,11 @@ export default function PerformanceDashboard() {
   const [assignmentOptions, setAssignmentOptions] = useState([]);
   const [dateRange, setDateRange] = useState(getStoredDateRange);
   const [dateRangePreset, setDateRangePreset] = useState(() => detectDatePreset(getStoredDateRange()));
-  const [trackerRange, setTrackerRange] = useState("90d");
+  const [trackerDateRange, setTrackerDateRange] = useState(createCurrentMonthWindow);
+  const [trackerRangePreset, setTrackerRangePreset] = useState("currentMonth");
+  const [providerFilter, setProviderFilter] = useState("both");
+  const [trackerProviderFilter, setTrackerProviderFilter] = useState("both");
+  const [comparisonSelection, setComparisonSelection] = useState(getDefaultComparisonSelections);
   const [managerOptions, setManagerOptions] = useState([]);
 
   const effectiveScope = useMemo(
@@ -251,7 +472,21 @@ export default function PerformanceDashboard() {
   );
 
   const { data, loading, error } = usePerformanceData(dateRange, effectiveScope);
+  const comparisonRanges = useMemo(
+    () => createComparisonRanges(comparisonSelection),
+    [comparisonSelection]
+  );
+  const { data: currentWeekComparisonData } = usePerformanceData(comparisonRanges.week.current, effectiveScope);
+  const { data: weekComparisonData } = usePerformanceData(comparisonRanges.week.previous, effectiveScope);
+  const { data: currentMonthComparisonData } = usePerformanceData(comparisonRanges.month.current, effectiveScope);
+  const { data: monthComparisonData } = usePerformanceData(comparisonRanges.month.previous, effectiveScope);
+  const { data: currentYearComparisonData } = usePerformanceData(comparisonRanges.year.current, effectiveScope);
+  const { data: yearComparisonData } = usePerformanceData(comparisonRanges.year.previous, effectiveScope);
   const dashboardData = data || emptyData;
+  const filteredDashboardData = useMemo(
+    () => filterDataByProvider(dashboardData, providerFilter),
+    [dashboardData, providerFilter]
+  );
 
   useEffect(() => {
     window.localStorage.setItem(DATE_RANGE_STORAGE_KEY, JSON.stringify(dateRange));
@@ -260,6 +495,10 @@ export default function PerformanceDashboard() {
   useEffect(() => {
     setManagerFilter(scope.managerFilter || "");
   }, [scope.managerFilter]);
+
+  useEffect(() => {
+    setTrackerProviderFilter(providerFilter);
+  }, [providerFilter]);
 
   useEffect(() => {
     if (!isPrimarySuperAdmin) return undefined;
@@ -299,8 +538,8 @@ export default function PerformanceDashboard() {
   }, [scope.hideFilters]);
 
   useEffect(() => {
-    if (!effectiveScope.repNameFilter || dashboardData.reps.length === 0) return;
-    const matchingRep = dashboardData.reps.find(
+    if (!effectiveScope.repNameFilter || filteredDashboardData.reps.length === 0) return;
+    const matchingRep = filteredDashboardData.reps.find(
       (rep) =>
         (rep.name || "").trim().toLowerCase() ===
         effectiveScope.repNameFilter.trim().toLowerCase()
@@ -309,16 +548,16 @@ export default function PerformanceDashboard() {
       setSelectedRep(matchingRep.id);
       setSelectedRepSnapshot({ id: matchingRep.id, name: matchingRep.name });
     }
-  }, [dashboardData.reps, effectiveScope.repNameFilter, selectedRep]);
+  }, [effectiveScope.repNameFilter, filteredDashboardData.reps, selectedRep]);
 
   useEffect(() => {
     if (!selectedRep) return;
-    const stillVisible = dashboardData.reps.some((rep) => rep.id === selectedRep);
+    const stillVisible = filteredDashboardData.reps.some((rep) => rep.id === selectedRep);
     if (!stillVisible) {
       setSelectedRep(null);
       setSelectedRepSnapshot(null);
     }
-  }, [dashboardData.reps, selectedRep]);
+  }, [filteredDashboardData.reps, selectedRep]);
 
   const handleSelectRep = (repId) => {
     setSelectedRep(repId || null);
@@ -327,7 +566,7 @@ export default function PerformanceDashboard() {
       return;
     }
 
-    const rep = dashboardData.reps.find((item) => item.id === repId);
+    const rep = filteredDashboardData.reps.find((item) => item.id === repId);
     setSelectedRepSnapshot(rep ? { id: rep.id, name: rep.name } : selectedRepSnapshot);
   };
 
@@ -358,42 +597,71 @@ export default function PerformanceDashboard() {
     if (preset === "custom") return;
     setDateRange(createDateWindowFromPreset(preset));
   };
+  const handleTrackerDateRangeChange = (field, value) => {
+    setTrackerRangePreset("custom");
+    setTrackerDateRange((current) => {
+      const next = {
+        ...current,
+        [field]: value,
+      };
+      if (next.startDate && next.endDate && next.startDate > next.endDate) {
+        if (field === "startDate") {
+          next.endDate = value;
+        } else {
+          next.startDate = value;
+        }
+      }
+      return next;
+    });
+  };
+  const handleTrackerRangePresetChange = (preset) => {
+    setTrackerRangePreset(preset);
+    if (preset === "custom") return;
+    setTrackerDateRange(createDateWindowFromPreset(preset));
+  };
 
   const selectedRepData = selectedRep
-    ? dashboardData.reps.find((rep) => rep.id === selectedRep)
+    ? filteredDashboardData.reps.find((rep) => rep.id === selectedRep)
     : null;
   const selectedRepLabel = selectedRepData?.name || selectedRepSnapshot?.name || "";
   const activeMetrics = selectedRep
     ? selectedRepData || { ...emptyMetrics, id: selectedRep, name: selectedRepLabel }
-    : dashboardData.companyKPIs;
+    : filteredDashboardData.companyKPIs;
   const visibleOrders = useMemo(
-    () => (selectedRep ? selectedRepData?.orders || [] : dashboardData.orders || []),
-    [dashboardData.orders, selectedRep, selectedRepData]
+    () => (selectedRep ? selectedRepData?.orders || [] : filteredDashboardData.orders || []),
+    [filteredDashboardData.orders, selectedRep, selectedRepData]
   );
-  const trackerSourceOrders = useMemo(
-    () =>
-      selectedRep
-        ? selectedRepData?.allTimeOrders || []
-        : dashboardData.scopedOrdersAllTime || [],
-    [dashboardData.scopedOrdersAllTime, selectedRep, selectedRepData]
-  );
+  const trackerSourceOrders = useMemo(() => {
+    const sourceRep = selectedRep
+      ? dashboardData.reps.find(
+          (rep) =>
+            rep.id === selectedRep ||
+            (selectedRepLabel && normalizeName(rep.name) === normalizeName(selectedRepLabel))
+        )
+      : null;
+    const sourceOrders = selectedRep
+      ? sourceRep?.allTimeOrders || []
+      : dashboardData.scopedOrdersAllTime || [];
+
+    return sourceOrders.filter((order) => providerMatches(order, trackerProviderFilter));
+  }, [dashboardData.reps, dashboardData.scopedOrdersAllTime, selectedRep, selectedRepLabel, trackerProviderFilter]);
   const trackerMetrics = useMemo(() => {
-    const range = buildTrackerRange(trackerRange);
+    const range = buildTrackerRange(trackerDateRange);
     const filtered = trackerSourceOrders.filter(
       (order) =>
         !range.startId ||
-        (order.orderDateId && order.orderDateId >= range.startId && order.orderDateId < range.endId)
+        (getTrackerDateId(order) && getTrackerDateId(order) >= range.startId && getTrackerDateId(order) < range.endId)
     );
     return buildInstallTrackerMetrics(filtered);
-  }, [trackerRange, trackerSourceOrders]);
+  }, [trackerDateRange, trackerSourceOrders]);
   const pendingOrders = useMemo(() => {
     const todayId = todayDateId();
-    const range = buildTrackerRange(trackerRange);
+    const range = buildTrackerRange(trackerDateRange);
     return trackerSourceOrders
       .filter(
         (order) =>
           !range.startId ||
-          (order.orderDateId && order.orderDateId >= range.startId && order.orderDateId < range.endId)
+          (getTrackerDateId(order) && getTrackerDateId(order) >= range.startId && getTrackerDateId(order) < range.endId)
       )
       .filter(
         (order) =>
@@ -401,15 +669,15 @@ export default function PerformanceDashboard() {
           (!order.dueDateId || order.dueDateId >= todayId)
       )
       .sort((a, b) => (a.dueDateId || "9999-12-31").localeCompare(b.dueDateId || "9999-12-31"));
-  }, [trackerRange, trackerSourceOrders]);
+  }, [trackerDateRange, trackerSourceOrders]);
   const pastDueOrders = useMemo(() => {
     const todayId = todayDateId();
-    const range = buildTrackerRange(trackerRange);
+    const range = buildTrackerRange(trackerDateRange);
     return trackerSourceOrders
       .filter(
         (order) =>
           !range.startId ||
-          (order.orderDateId && order.orderDateId >= range.startId && order.orderDateId < range.endId)
+          (getTrackerDateId(order) && getTrackerDateId(order) >= range.startId && getTrackerDateId(order) < range.endId)
       )
       .filter(
         (order) =>
@@ -418,16 +686,18 @@ export default function PerformanceDashboard() {
           order.dueDateId < todayId
       )
       .sort((a, b) => (a.dueDateId || "").localeCompare(b.dueDateId || ""));
-  }, [trackerRange, trackerSourceOrders]);
+  }, [trackerDateRange, trackerSourceOrders]);
   const nextSevenDayPendingMetrics = useMemo(() => {
     const todayId = todayDateId();
     const nextWeekId = shiftDateId(7);
+    const range = buildTrackerRange(trackerDateRange);
     const nextSevenDayOrders = trackerSourceOrders.filter(
       (order) =>
         order.classifications?.pending &&
         order.dueDateId &&
         order.dueDateId >= todayId &&
-        order.dueDateId <= nextWeekId
+        order.dueDateId <= nextWeekId &&
+        (!range.startId || (order.dueDateId >= range.startId && order.dueDateId < range.endId))
     );
 
     return {
@@ -437,7 +707,7 @@ export default function PerformanceDashboard() {
           .map((order) => order.dueDateId)
           .sort((a, b) => a.localeCompare(b))[0] || "",
     };
-  }, [trackerSourceOrders]);
+  }, [trackerDateRange, trackerSourceOrders]);
 
   const openAssignmentModal = (order) => {
     if (!canManageAssignments) return;
@@ -496,9 +766,9 @@ export default function PerformanceDashboard() {
         description="Sales, status, and install metrics from uploaded orders."
         stats={[
           { label: "Range", value: formatDateRangeSummary(dateRange) },
-          { label: "Reps", value: dashboardData.reps.length || 0 },
+          { label: "Reps", value: filteredDashboardData.reps.length || 0 },
           { label: "Scope", value: selectedRep ? selectedRepLabel || "Selected rep" : "All reps" },
-          { label: "Sales", value: dashboardData.companyKPIs.totalSales || 0 },
+          { label: "Sales", value: filteredDashboardData.companyKPIs.totalSales || 0 },
         ]}
       />
 
@@ -535,8 +805,8 @@ export default function PerformanceDashboard() {
                   <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                     Rep Scope
                   </span>
-                  <RepSelector
-                    reps={dashboardData.reps}
+                <RepSelector
+                    reps={filteredDashboardData.reps}
                     selectedRep={selectedRep}
                     onSelectRep={handleSelectRep}
                     selectedRepFallback={selectedRepSnapshot}
@@ -544,6 +814,26 @@ export default function PerformanceDashboard() {
                 </label>
               </>
             ) : null}
+
+            <label className="grid gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Provider
+              </span>
+              <div className="join h-12 w-full">
+                {PROVIDER_FILTERS.map((provider) => (
+                  <button
+                    key={provider}
+                    type="button"
+                    className={`btn join-item h-12 flex-1 ${
+                      providerFilter === provider ? "btn-primary" : "btn-outline"
+                    }`}
+                    onClick={() => setProviderFilter(provider)}
+                  >
+                    {provider === "both" ? "Both" : provider}
+                  </button>
+                ))}
+              </div>
+            </label>
 
             <label className="grid gap-2">
               <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -600,21 +890,79 @@ export default function PerformanceDashboard() {
         ) : null}
       </section>
 
-      <KPICards data={dashboardData} selectedRep={selectedRep} />
+      <KPICards data={filteredDashboardData} selectedRep={selectedRep} />
 
       <StatusGauges metrics={activeMetrics} />
+
+      <ComparisonSection
+        selection={comparisonSelection}
+        onSelectionChange={setComparisonSelection}
+        comparisons={[
+          {
+            label: comparisonRanges.week.label,
+            currentLabel: formatDateRangeSummary(comparisonRanges.week.current),
+            previousLabel: formatDateRangeSummary(comparisonRanges.week.previous),
+            currentMetrics: selectComparisonMetrics(
+              currentWeekComparisonData,
+              providerFilter,
+              selectedRep,
+              selectedRepLabel
+            ),
+            previousMetrics: selectComparisonMetrics(
+              weekComparisonData,
+              providerFilter,
+              selectedRep,
+              selectedRepLabel
+            ),
+          },
+          {
+            label: comparisonRanges.month.label,
+            currentLabel: formatDateRangeSummary(comparisonRanges.month.current),
+            previousLabel: formatDateRangeSummary(comparisonRanges.month.previous),
+            currentMetrics: selectComparisonMetrics(
+              currentMonthComparisonData,
+              providerFilter,
+              selectedRep,
+              selectedRepLabel
+            ),
+            previousMetrics: selectComparisonMetrics(
+              monthComparisonData,
+              providerFilter,
+              selectedRep,
+              selectedRepLabel
+            ),
+          },
+          {
+            label: comparisonRanges.year.label,
+            currentLabel: formatDateRangeSummary(comparisonRanges.year.current),
+            previousLabel: formatDateRangeSummary(comparisonRanges.year.previous),
+            currentMetrics: selectComparisonMetrics(
+              currentYearComparisonData,
+              providerFilter,
+              selectedRep,
+              selectedRepLabel
+            ),
+            previousMetrics: selectComparisonMetrics(
+              yearComparisonData,
+              providerFilter,
+              selectedRep,
+              selectedRepLabel
+            ),
+          },
+        ]}
+      />
 
       <InstallStatusChart metrics={activeMetrics} />
 
       <InstallTracker
         metrics={trackerMetrics}
         upcomingPendingMetrics={nextSevenDayPendingMetrics}
-        allTimeMetrics={{
-          pastDue: activeMetrics.allTimePastDueInstalls || 0,
-          oldestPastDueDateId: activeMetrics.allTimeOldestPastDueDateId || "",
-        }}
-        range={trackerRange}
-        onRangeChange={setTrackerRange}
+        rangePreset={trackerRangePreset}
+        dateRange={trackerDateRange}
+        providerFilter={trackerProviderFilter}
+        onRangePresetChange={handleTrackerRangePresetChange}
+        onDateRangeChange={handleTrackerDateRangeChange}
+        onProviderFilterChange={setTrackerProviderFilter}
         onOpenPending={() => setPendingModalOpen(true)}
         onOpenPastDue={() => setPastDueModalOpen(true)}
       />
@@ -631,7 +979,7 @@ export default function PerformanceDashboard() {
 
       {canSeeAdminReview ? (
         <AllSalesBox
-          orders={dashboardData.orders}
+          orders={filteredDashboardData.orders}
           onSelectOrder={setSelectedOrder}
           onEditAssignment={openAssignmentModal}
         />
@@ -717,6 +1065,115 @@ function StatusGauges({ metrics }) {
         {gauges.map((gauge) => (
           <GaugeCard key={gauge.label} {...gauge} />
         ))}
+      </div>
+    </section>
+  );
+}
+
+function ComparisonSection({ comparisons, selection, onSelectionChange }) {
+  const rows = [
+    { key: "totalSales", label: "Sales", format: (value) => Number(value || 0).toLocaleString() },
+    { key: "conversionRate", label: "Conversion", format: formatPct },
+    { key: "installedActive", label: "Active Installs", format: (value) => Number(value || 0).toLocaleString() },
+  ];
+  const controls = {
+    "Week vs Week": {
+      label: "Compare Week",
+      type: "date",
+      value: selection.weekStartDate,
+      onChange: (value) => {
+        const selected = new Date(`${value}T00:00:00`);
+        if (Number.isNaN(selected.getTime())) return;
+        const day = (selected.getDay() + 6) % 7;
+        const weekStart = addDays(selected, -day);
+        onSelectionChange((current) => ({ ...current, weekStartDate: toDateId(weekStart) }));
+      },
+    },
+    "Month vs Month": {
+      label: "Compare Month",
+      type: "month",
+      value: selection.monthId,
+      onChange: (value) => onSelectionChange((current) => ({ ...current, monthId: value })),
+    },
+    "Year vs Year": {
+      label: "Compare Year",
+      type: "number",
+      value: selection.year,
+      onChange: (value) => onSelectionChange((current) => ({ ...current, year: value })),
+    },
+  };
+
+  return (
+    <section className="glass-panel p-5">
+      <SectionIntro
+        title="Period Comparison"
+        description="Week-over-week, month-over-month, and year-over-year performance."
+      />
+
+      <div className="mt-5 grid gap-4 xl:grid-cols-3">
+        {comparisons.map((comparison) => {
+          const control = controls[comparison.label];
+
+          return (
+          <article key={comparison.label} className="rounded-[24px] border border-slate-200/70 bg-white/78 p-4">
+            <div>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <h3 className="text-sm font-semibold text-slate-950">{comparison.label}</h3>
+                {control ? (
+                  <label className="grid gap-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      {control.label}
+                    </span>
+                    <input
+                      type={control.type}
+                      min={control.type === "number" ? "2000" : undefined}
+                      max={control.type === "number" ? "2100" : undefined}
+                      value={control.value}
+                      onChange={(event) => control.onChange(event.target.value)}
+                      className="input input-bordered input-sm w-40"
+                    />
+                  </label>
+                ) : null}
+              </div>
+              <p className="mt-1 text-xs font-medium text-slate-500">
+                {comparison.previousLabel} vs {comparison.currentLabel}
+              </p>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              {rows.map((row) => {
+                const current = Number(comparison.currentMetrics?.[row.key] || 0);
+                const previous = Number(comparison.previousMetrics?.[row.key] || 0);
+                const delta = current - previous;
+                const deltaPct = previous > 0 ? (delta / previous) * 100 : current > 0 ? 100 : 0;
+                const positive = delta >= 0;
+
+                return (
+                  <div key={row.key} className="rounded-[18px] bg-slate-50 px-3 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        {row.label}
+                      </span>
+                      <span className={`text-xs font-bold ${positive ? "text-emerald-600" : "text-rose-600"}`}>
+                        {positive ? "+" : ""}
+                        {formatPct(deltaPct)}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-end justify-between gap-3">
+                      <div className="font-display text-2xl font-bold text-slate-950">
+                        {row.format(current)}
+                      </div>
+                      <div className="text-right text-xs font-semibold text-slate-500">
+                        Prior {row.format(previous)}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </article>
+          );
+        })}
       </div>
     </section>
   );
@@ -826,9 +1283,12 @@ function InstallStatusChart({ metrics }) {
 function InstallTracker({
   metrics,
   upcomingPendingMetrics,
-  allTimeMetrics,
-  range,
-  onRangeChange,
+  rangePreset,
+  dateRange,
+  providerFilter,
+  onRangePresetChange,
+  onDateRangeChange,
+  onProviderFilterChange,
   onOpenPending,
   onOpenPastDue,
 }) {
@@ -864,11 +1324,11 @@ function InstallTracker({
       />
 
       <div className="mt-6">
-        <div className="mb-5 flex justify-end">
+        <div className="mb-5 grid gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,240px)_minmax(0,170px)_minmax(0,170px)] md:justify-end">
           <select
-            value={range}
-            onChange={(event) => onRangeChange(event.target.value)}
-            className="select select-bordered select-sm w-36"
+            value={rangePreset}
+            onChange={(event) => onRangePresetChange(event.target.value)}
+            className="select select-bordered select-sm w-full"
           >
             {TRACKER_RANGES.map((option) => (
               <option key={option} value={option}>
@@ -876,6 +1336,34 @@ function InstallTracker({
               </option>
             ))}
           </select>
+          <div className="join h-8 w-full">
+            {PROVIDER_FILTERS.map((provider) => (
+              <button
+                key={provider}
+                type="button"
+                className={`btn join-item btn-sm h-8 min-h-8 flex-1 px-2 text-xs ${
+                  providerFilter === provider ? "btn-primary" : "btn-outline"
+                }`}
+                onClick={() => onProviderFilterChange(provider)}
+              >
+                {provider === "both" ? "Both" : provider}
+              </button>
+            ))}
+          </div>
+          <input
+            type="date"
+            value={dateRange.startDate}
+            onChange={(event) => onDateRangeChange("startDate", event.target.value)}
+            className="input input-bordered input-sm w-full"
+            aria-label="Install tracker start date"
+          />
+          <input
+            type="date"
+            value={dateRange.endDate}
+            onChange={(event) => onDateRangeChange("endDate", event.target.value)}
+            className="input input-bordered input-sm w-full"
+            aria-label="Install tracker end date"
+          />
         </div>
 
         <div className="relative mx-auto max-w-4xl">
@@ -936,15 +1424,15 @@ function InstallTracker({
 
           <div className="rounded-[24px] border border-slate-200/70 bg-white/78 px-5 py-4">
             <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-              All-Time Past Due
+              Past Due In Filter
             </div>
             <div className="mt-2 font-display text-4xl font-bold text-rose-600">
-              {allTimeMetrics.pastDue || 0}
+              {metrics.pastDue || 0}
             </div>
             <div className="mt-2 text-sm font-semibold text-slate-600">
               Oldest due:{" "}
-              {allTimeMetrics.pastDue
-                ? formatDateLabel(allTimeMetrics.oldestPastDueDateId)
+              {metrics.pastDue
+                ? formatDateLabel(metrics.oldestPastDueDateId)
                 : "No overdue installs"}
             </div>
           </div>
@@ -965,31 +1453,61 @@ function PastDueOrdersModal({
 }) {
   const isPastDue = tone === "pastDue";
   const [search, setSearch] = useState("");
+  const [sortConfig, setSortConfig] = useState({
+    key: "dueDateId",
+    direction: isPastDue ? "asc" : "asc",
+  });
+  const sortableColumns = [
+    { key: "uid", label: "UID" },
+    { key: "dueDateId", label: "Due Date" },
+    { key: "orderDateId", label: "Sale Date" },
+    { key: "customerName", label: "Customer" },
+    { key: "repName", label: "Rep" },
+    { key: "provider", label: "Provider" },
+    { key: "status", label: "Status" },
+  ];
   const filteredOrders = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return orders;
+    const searched = query
+      ? orders.filter((order) => {
+          const haystack = [
+            order.uid,
+            order.dueDateId,
+            order.orderDateId,
+            order.customerName,
+            order.repName,
+            order.provider,
+            order.status,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
 
-    return orders.filter((order) => {
-      const haystack = [
-        order.uid,
-        order.dueDateId,
-        order.orderDateId,
-        order.customerName,
-        order.repName,
-        order.provider,
-        order.status,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
+          return haystack.includes(query);
+        })
+      : orders;
 
-      return haystack.includes(query);
+    return [...searched].sort((a, b) => {
+      const aValue = String(a[sortConfig.key] ?? "").trim();
+      const bValue = String(b[sortConfig.key] ?? "").trim();
+      const direction = sortConfig.direction === "desc" ? -1 : 1;
+      return aValue.localeCompare(bValue, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      }) * direction;
     });
-  }, [orders, search]);
+  }, [orders, search, sortConfig]);
 
   useEffect(() => {
     if (!open) setSearch("");
   }, [open]);
+
+  const toggleSort = (key) => {
+    setSortConfig((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
+  };
 
   const downloadCsv = () => {
     const rawHeaders = Array.from(
@@ -1073,13 +1591,24 @@ function PastDueOrdersModal({
             <table className="table table-sm w-full">
               <thead className="bg-slate-100/90 text-slate-700">
                 <tr>
-                  <th>UID</th>
-                  <th>Due Date</th>
-                  <th>Sale Date</th>
-                  <th>Customer</th>
-                  <th>Rep</th>
-                  <th>Provider</th>
-                  <th>Status</th>
+                  {sortableColumns.map((column) => (
+                    <th key={column.key}>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 font-semibold text-slate-700"
+                        onClick={() => toggleSort(column.key)}
+                      >
+                        <span>{column.label}</span>
+                        <span className="text-[10px] text-slate-400">
+                          {sortConfig.key === column.key
+                            ? sortConfig.direction === "asc"
+                              ? "▲"
+                              : "▼"
+                            : "↕"}
+                        </span>
+                      </button>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -1204,13 +1733,32 @@ function AllSalesBox({ orders, onSelectOrder }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({
-    saleDate: "",
+    startDate: "",
+    endDate: "",
+    repName: "",
+    provider: "",
     status: "",
   });
-  const saleDateOptions = useMemo(
+  const [sortConfig, setSortConfig] = useState({ key: "orderDateId", direction: "desc" });
+  const sortableColumns = [
+    { key: "uid", label: "UID" },
+    { key: "orderDateId", label: "Sale Date" },
+    { key: "customerName", label: "Customer" },
+    { key: "repName", label: "Salesperson" },
+    { key: "provider", label: "Provider" },
+    { key: "status", label: "Status" },
+  ];
+  const repOptions = useMemo(
     () =>
-      Array.from(new Set(orders.map((order) => order.orderDateId).filter(Boolean))).sort((a, b) =>
-        b.localeCompare(a)
+      Array.from(new Set(orders.map((order) => String(order.repName || "").trim()).filter(Boolean))).sort(
+        (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })
+      ),
+    [orders]
+  );
+  const providerOptions = useMemo(
+    () =>
+      Array.from(new Set(orders.map((order) => String(order.provider || "").trim()).filter(Boolean))).sort(
+        (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })
       ),
     [orders]
   );
@@ -1225,6 +1773,7 @@ function AllSalesBox({ orders, onSelectOrder }) {
   const filteredOrders = useMemo(() => {
     return orders
       .filter((order) => {
+        const orderDateId = order.orderDateId || "";
         const matchesSearch =
           !search.trim() ||
           [
@@ -1241,12 +1790,32 @@ function AllSalesBox({ orders, onSelectOrder }) {
 
         return (
           matchesSearch &&
-          matchesExactFilterValue(order.orderDateId, filters.saleDate) &&
+          (!filters.startDate || (orderDateId && orderDateId >= filters.startDate)) &&
+          (!filters.endDate || (orderDateId && orderDateId <= filters.endDate)) &&
+          matchesExactFilterValue(order.repName, filters.repName) &&
+          matchesExactFilterValue(order.provider, filters.provider) &&
           matchesExactFilterValue(order.status, filters.status)
         );
       })
-      .sort((a, b) => (b.orderDateId || "").localeCompare(a.orderDateId || ""));
-  }, [filters, orders, search]);
+      .sort((a, b) => {
+        const aValue = String(a[sortConfig.key] ?? "").trim();
+        const bValue = String(b[sortConfig.key] ?? "").trim();
+        const direction = sortConfig.direction === "desc" ? -1 : 1;
+        return (
+          aValue.localeCompare(bValue, undefined, {
+            numeric: true,
+            sensitivity: "base",
+          }) * direction
+        );
+      });
+  }, [filters, orders, search, sortConfig]);
+
+  const toggleSort = (key) => {
+    setSortConfig((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
+  };
 
   const downloadCsv = () => {
     const rawHeaders = Array.from(
@@ -1314,41 +1883,106 @@ function AllSalesBox({ orders, onSelectOrder }) {
             placeholder="Search UID, customer, rep, provider, or status"
           />
 
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <label className="grid gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Start Date
+              </span>
+              <input
+                type="date"
+                value={filters.startDate}
+                onChange={(event) =>
+                  setFilters((current) => ({ ...current, startDate: event.target.value }))
+                }
+                className="input input-bordered w-full"
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                End Date
+              </span>
+              <input
+                type="date"
+                value={filters.endDate}
+                onChange={(event) =>
+                  setFilters((current) => ({ ...current, endDate: event.target.value }))
+                }
+                className="input input-bordered w-full"
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Salesperson
+              </span>
+              <ColumnDropdown
+                value={filters.repName}
+                options={repOptions}
+                onChange={(value) => setFilters((current) => ({ ...current, repName: value }))}
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Provider
+              </span>
+              <ColumnDropdown
+                value={filters.provider}
+                options={providerOptions}
+                onChange={(value) => setFilters((current) => ({ ...current, provider: value }))}
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Status
+              </span>
+              <ColumnDropdown
+                value={filters.status}
+                options={statusOptions}
+                onChange={(value) => setFilters((current) => ({ ...current, status: value }))}
+              />
+            </label>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() =>
+                setFilters({
+                  startDate: "",
+                  endDate: "",
+                  repName: "",
+                  provider: "",
+                  status: "",
+                })
+              }
+            >
+              Clear Filters
+            </button>
+          </div>
+
           <div className="data-table-shell">
             <div className="data-table-scroll">
               <table className="table table-sm w-full">
                 <thead className="bg-slate-100/90 text-slate-700">
                   <tr>
-                    <th>UID</th>
-                    <th>Sale Date</th>
-                    <th>Customer</th>
-                    <th>Salesperson</th>
-                    <th>Provider</th>
-                    <th>Status</th>
-                  </tr>
-                  <tr>
-                    <th />
-                    <th>
-                      <ColumnDropdown
-                        value={filters.saleDate}
-                        options={saleDateOptions}
-                        onChange={(value) =>
-                          setFilters((current) => ({ ...current, saleDate: value }))
-                        }
-                      />
-                    </th>
-                    <th />
-                    <th />
-                    <th />
-                    <th>
-                      <ColumnDropdown
-                        value={filters.status}
-                        options={statusOptions}
-                        onChange={(value) =>
-                          setFilters((current) => ({ ...current, status: value }))
-                        }
-                      />
-                    </th>
+                    {sortableColumns.map((column) => (
+                      <th key={column.key}>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 font-semibold text-slate-700"
+                          onClick={() => toggleSort(column.key)}
+                        >
+                          <span>{column.label}</span>
+                          <span className="text-[10px] text-slate-400">
+                            {sortConfig.key === column.key
+                              ? sortConfig.direction === "asc"
+                                ? "▲"
+                                : "▼"
+                              : "↕"}
+                          </span>
+                        </button>
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
