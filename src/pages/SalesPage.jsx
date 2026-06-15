@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { LoadingPanel, PageHero, PageShell } from "../components/PageLayout.jsx";
 import MobileManagerAccordion from "../components/MobileManagerAccordion.jsx";
@@ -17,9 +17,19 @@ export default function SalesPage() {
   const canEditSales = isAdmin && permissions.canEditSales;
   const canEditReps = isAdmin && permissions.canEditReps;
   const [weekISO, setWeekISO] = useState(toISO(startOfWeek()));
+  const [salesSnapshot, setSalesSnapshot] = useState({
+    weekTotal: 0,
+    percentToGoal: 0,
+  });
   const [params, setParams] = useSearchParams();
   const location = scope.locationFilter || params.get("location") || "All";
   const manager = scope.managerFilter || params.get("manager") || "All";
+  const handleTotalsChange = useCallback((totals) => {
+    setSalesSnapshot({
+      weekTotal: totals.weekTotal || 0,
+      percentToGoal: totals.percentToGoal || 0,
+    });
+  }, []);
 
   if (loading) {
     return (
@@ -50,9 +60,10 @@ export default function SalesPage() {
         description="Weekly sales by rep, manager, and location."
         stats={[
           { label: "Week", value: weekISO },
+          { label: "Total Sales", value: salesSnapshot.weekTotal || 0 },
+          { label: "% To Goal", value: `${salesSnapshot.percentToGoal || 0}%` },
           { label: "Location", value: location },
           { label: "Manager", value: manager },
-          { label: "Access", value: canEditSales ? "Editor" : isDemo ? "Demo" : "Viewer" },
         ]}
       />
 
@@ -106,6 +117,7 @@ export default function SalesPage() {
         teamFilter={location}
         managerFilter={manager}
         repNameFilter={scope.repNameFilter}
+        onTotalsChange={handleTotalsChange}
       />
     </PageShell>
   );

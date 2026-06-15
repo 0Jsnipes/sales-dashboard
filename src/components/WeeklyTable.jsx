@@ -191,6 +191,7 @@ export default function WeeklyTable({
   teamFilter = "All",
   managerFilter = "All",
   repNameFilter = "",
+  onTotalsChange,
 }) {
   const { user, isSuperAdmin } = useAuthRole();
   const isDemo = useDemoMode();
@@ -458,6 +459,14 @@ export default function WeeklyTable({
     colTotals.goalTotal > 0
       ? Math.min(100, Math.round((colTotals.weekTotal / colTotals.goalTotal) * 100))
       : 0;
+
+  useEffect(() => {
+    onTotalsChange?.({
+      weekTotal: colTotals.weekTotal,
+      goalTotal: colTotals.goalTotal,
+      percentToGoal: totalsPct,
+    });
+  }, [colTotals.goalTotal, colTotals.weekTotal, onTotalsChange, totalsPct]);
 
   const inactivitySummary = useMemo(() => {
     const weekStart = parseLocalISO(weekISO);
@@ -1495,18 +1504,20 @@ export default function WeeklyTable({
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                 Weekly {metricLabel}
               </div>
-              <div className="mt-2 font-display text-2xl font-bold text-slate-950">
-                {colTotals.weekTotal}
+              <div className="mt-2 rounded-[20px] border border-lime-300 bg-lime-50 px-4 py-3">
+                <div className="font-display text-2xl font-bold text-zinc-950">
+                  {colTotals.weekTotal}
+                </div>
               </div>
               <p className="mt-2 text-sm text-slate-600">
                 Rep-by-rep details are hidden on mobile for a cleaner view.
               </p>
             </div>
-            <div className="text-right">
+            <div className="rounded-[20px] border border-lime-300 bg-lime-50 px-4 py-3 text-right">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                 Goal
               </div>
-              <div className="mt-2 font-display text-2xl font-bold text-slate-950">
+              <div className="mt-2 font-display text-2xl font-bold text-zinc-950">
                 {colTotals.goalTotal}
               </div>
             </div>
@@ -1521,11 +1532,11 @@ export default function WeeklyTable({
                 {inactivitySummary.rows.length}
               </div>
             </div>
-            <div className="rounded-[20px] border border-slate-200/70 bg-slate-50/90 px-4 py-3">
+            <div className="rounded-[20px] border border-lime-300 bg-lime-50 px-4 py-3">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                 Team Progress
               </div>
-              <div className="mt-2 font-display text-2xl font-bold text-slate-950">
+              <div className="mt-2 font-display text-2xl font-bold text-zinc-950">
                 {totalsPct}%
               </div>
             </div>
@@ -1536,7 +1547,7 @@ export default function WeeklyTable({
               <span>Team progress</span>
               <span>{totalsPct}%</span>
             </div>
-            <progress className="progress w-full" value={totalsPct} max="100" />
+            <progress className="progress progress-secondary w-full" value={totalsPct} max="100" />
           </div>
         </article>
       </div>
@@ -1938,32 +1949,34 @@ export default function WeeklyTable({
                         </td>
                       ))}
 
-                      <td className="px-1 text-center font-semibold">{total}</td>
+                      <td className="border-l border-lime-300 bg-lime-50/90 px-1 text-center font-bold text-zinc-950">
+                        {total}
+                      </td>
 
-                      <td className="px-1 text-center">
+                      <td className="border-x border-lime-300 bg-lime-50/90 px-1 text-center">
                         {canEdit ? (
                           <input
                             key={`${r.id}-${weekISO}-goal-${goal ?? 0}`}
                             type="number"
                             min="0"
                             defaultValue={goal ?? ""}
-                            className="input input-bordered input-xs weekly-grid-input h-8 w-14 min-h-8"
+                            className="input input-bordered input-xs weekly-grid-input h-8 w-14 min-h-8 border-lime-300 bg-white font-semibold text-zinc-950"
                             data-type="goal"
                             data-rep={r.id}
                             onBlur={(e) => saveGoal(r, e.target.value)}
                             onKeyDown={handleKeyNav}
                           />
                         ) : (
-                          <span className="inline-flex w-full justify-center">
+                          <span className="inline-flex w-full justify-center font-semibold text-zinc-950">
                             {goal === 0 ? 0 : goal || ""}
                           </span>
                         )}
                       </td>
 
-                      <td>
-                        <div className="flex items-center gap-1">
-                          <progress className="progress w-24" value={pct} max="100" />
-                          <span className="w-8 text-[11px] opacity-70">{pct}%</span>
+                      <td className="border-r border-lime-300 bg-lime-50/90">
+                        <div className="flex items-center gap-2 px-2">
+                          <progress className="progress progress-secondary w-28" value={pct} max="100" />
+                          <span className="w-10 text-[12px] font-bold text-zinc-950">{pct}%</span>
                         </div>
                       </td>
 
@@ -2005,12 +2018,16 @@ export default function WeeklyTable({
                       {value}
                     </th>
                   ))}
-                  <th className="px-1 text-center">{colTotals.weekTotal}</th>
-                  <th className="px-1 text-center">{colTotals.goalTotal}</th>
-                  <th>
-                    <div className="flex items-center gap-1">
-                      <progress className="progress w-24" value={totalsPct} max="100" />
-                      <span className="w-8 text-[11px] opacity-70">{totalsPct}%</span>
+                  <th className="border-l border-lime-300 bg-lime-100 px-1 text-center font-bold text-zinc-950">
+                    {colTotals.weekTotal}
+                  </th>
+                  <th className="border-x border-lime-300 bg-lime-100 px-1 text-center font-bold text-zinc-950">
+                    {colTotals.goalTotal}
+                  </th>
+                  <th className="border-r border-lime-300 bg-lime-100">
+                    <div className="flex items-center gap-2 px-2">
+                      <progress className="progress progress-secondary w-28" value={totalsPct} max="100" />
+                      <span className="w-10 text-[12px] font-bold text-zinc-950">{totalsPct}%</span>
                     </div>
                   </th>
                   <th>-</th>
