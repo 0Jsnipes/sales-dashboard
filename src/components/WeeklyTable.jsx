@@ -24,7 +24,7 @@ import { buildWeeklySalesRows, normalizeSalesUploadOrder } from "../lib/weeklySa
 import AddRepsModal from "./AddRepsModal";
 import EditRepsModal from "./EditRepsModal";
 import Modal from "./Modal";
-import { SectionIntro } from "./PageLayout.jsx";
+import { LoadingPanel, SectionIntro } from "./PageLayout.jsx";
 import { useAuthRole } from "../hooks/useAuth.js";
 import { useDemoMode } from "../hooks/useDemoMode";
 import { getDemoWeekRows } from "../demo/demoData.js";
@@ -206,11 +206,15 @@ export default function WeeklyTable({
   managerFilter = "All",
   repNameFilter = "",
   onTotalsChange,
+  onDataLoadingChange,
 }) {
   const { user, isSuperAdmin } = useAuthRole();
   const isDemo = useDemoMode();
   const [rawRows, setRawRows] = useState([]);
   const [salesUploadOrders, setSalesUploadOrders] = useState([]);
+  const [rowsLoaded, setRowsLoaded] = useState(false);
+  const [attUploadLoaded, setAttUploadLoaded] = useState(metricKey !== "sales" || isDemo);
+  const [tFiberUploadLoaded, setTFiberUploadLoaded] = useState(metricKey !== "sales" || isDemo);
   const [openAdd, setOpenAdd] = useState(false);
   const [repToEdit, setRepToEdit] = useState(null); // <-- per-rep edit
   const [highlightedRepId, setHighlightedRepId] = useState(null);
@@ -241,6 +245,8 @@ export default function WeeklyTable({
   const canManageReps = canEdit || canEditReps;
   const canUseSalesAdminTools =
     metricKey === "sales" && isEmailAllowed(teamManagerAllowlist, user?.email);
+  const salesUploadsLoaded = metricKey !== "sales" || isDemo || (attUploadLoaded && tFiberUploadLoaded);
+  const dataLoaded = rowsLoaded && salesUploadsLoaded;
   const repManagerOptions = useMemo(
     () => uniqueSortedValues(rows.map((row) => row.manager)),
     [rows]
@@ -265,6 +271,8 @@ export default function WeeklyTable({
 
   // Load rows (alphabetical) with previous-week fallback (zeroed)
   useEffect(() => {
+    setRowsLoaded(false);
+
     if (isDemo) {
       const normalizeFilter = (v) => (v ?? "").trim();
       const teamFilterNorm = normalizeFilter(teamFilter);
@@ -303,6 +311,7 @@ export default function WeeklyTable({
         );
 
       setRawRows(demoRows);
+      setRowsLoaded(true);
       return undefined;
     }
 
@@ -423,7 +432,17 @@ export default function WeeklyTable({
           })
         );
 
-        if (!cancelled) setRawRows(merged);
+        if (!cancelled) {
+          setRawRows(merged);
+          setRowsLoaded(true);
+        }
+      },
+      (error) => {
+        console.error("Failed to load weekly rows", error);
+        if (!cancelled) {
+          setRawRows([]);
+          setRowsLoaded(true);
+        }
       }
     );
 
@@ -436,8 +455,14 @@ export default function WeeklyTable({
   useEffect(() => {
     if (isDemo || metricKey !== "sales") {
       setSalesUploadOrders([]);
+      setAttUploadLoaded(true);
+      setTFiberUploadLoaded(true);
       return undefined;
     }
+
+    setSalesUploadOrders([]);
+    setAttUploadLoaded(false);
+    setTFiberUploadLoaded(false);
 
     const unsubAtt = onSnapshot(
       collection(db, "salesUploads", ATT_DB_GROUP, "orders"),
@@ -446,6 +471,11 @@ export default function WeeklyTable({
           const tfiber = current.filter((order) => order.provider !== "ATT");
           return [...tfiber, ...snap.docs.map((docSnap) => normalizeSalesUploadOrder(ATT_DB_GROUP, docSnap))];
         });
+        setAttUploadLoaded(true);
+      },
+      (error) => {
+        console.error("Failed to load ATT sales uploads", error);
+        setAttUploadLoaded(true);
       }
     );
 
@@ -456,6 +486,11 @@ export default function WeeklyTable({
           const att = current.filter((order) => order.provider === "ATT");
           return [...att, ...snap.docs.map((docSnap) => normalizeSalesUploadOrder(T_FIBER_DB_GROUP, docSnap))];
         });
+        setTFiberUploadLoaded(true);
+      },
+      (error) => {
+        console.error("Failed to load T-Fiber sales uploads", error);
+        setTFiberUploadLoaded(true);
       }
     );
 
@@ -464,6 +499,10 @@ export default function WeeklyTable({
       unsubTFiber();
     };
   }, [isDemo, metricKey]);
+
+  useEffect(() => {
+    onDataLoadingChange?.(!dataLoaded);
+  }, [dataLoaded, onDataLoadingChange]);
 
   // Totals
   const colTotals = useMemo(() => {
@@ -485,12 +524,14 @@ export default function WeeklyTable({
       : 0;
 
   useEffect(() => {
+    if (!dataLoaded) return;
+
     onTotalsChange?.({
       weekTotal: colTotals.weekTotal,
       goalTotal: colTotals.goalTotal,
       percentToGoal: totalsPct,
     });
-  }, [colTotals.goalTotal, colTotals.weekTotal, onTotalsChange, totalsPct]);
+  }, [colTotals.goalTotal, colTotals.weekTotal, dataLoaded, onTotalsChange, totalsPct]);
 
   const inactivitySummary = useMemo(() => {
     const weekStart = parseLocalISO(weekISO);
@@ -1579,6 +1620,27 @@ export default function WeeklyTable({
         </article>
       </div>
     ) : null;
+
+  if (!dataLoaded) {
+    return (
+      <section className="glass-panel p-4 sm:p-5">
+        <SectionIntro
+          title={title}
+          description={
+            metricKey === "sales"
+              ? "Daily sales totals for the selected week."
+              : "Daily knock totals for the selected week."
+          }
+        />
+        <LoadingPanel
+          compact
+          className="mt-5"
+          label={`Loading ${metricLabel.toLowerCase()} grid`}
+          detail="Syncing the weekly rows and totals."
+        />
+      </section>
+    );
+  }
 
   return (
     <section className="glass-panel p-4 sm:p-5">

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { LoadingPanel, PageHero, PageShell } from "../components/PageLayout.jsx";
 import MobileManagerAccordion from "../components/MobileManagerAccordion.jsx";
@@ -17,9 +17,14 @@ export default function KnocksPage() {
   const canEditKnocks = isAdmin && permissions.canEditKnocks;
   const canEditReps = isAdmin && permissions.canEditReps;
   const [weekISO, setWeekISO] = useState(toISO(startOfWeek()));
+  const [gridLoading, setGridLoading] = useState(true);
   const [params, setParams] = useSearchParams();
   const location = scope.locationFilter || params.get("location") || "All";
   const manager = scope.managerFilter || params.get("manager") || "All";
+  const handleWeekChange = useCallback((value) => {
+    setGridLoading(true);
+    setWeekISO(value);
+  }, []);
 
   if (loading) {
     return (
@@ -30,6 +35,7 @@ export default function KnocksPage() {
   }
 
   const setLocation = (value) => {
+    setGridLoading(true);
     const next = new URLSearchParams(params);
     if (value && value !== "All") next.set("location", value);
     else next.delete("location");
@@ -37,6 +43,7 @@ export default function KnocksPage() {
   };
 
   const setManager = (value) => {
+    setGridLoading(true);
     const next = new URLSearchParams(params);
     if (value && value !== "All") next.set("manager", value);
     else next.delete("manager");
@@ -45,70 +52,77 @@ export default function KnocksPage() {
 
   return (
     <PageShell>
-      <PageHero
-        title="Knocks"
-        description="Weekly door activity by rep, manager, and location."
-        stats={[
-          { label: "Week", value: weekISO },
-          { label: "Location", value: location },
-          { label: "Manager", value: manager },
-          { label: "Access", value: canEditKnocks ? "Editor" : isDemo ? "Demo" : "Viewer" },
-        ]}
-      />
+      {gridLoading ? (
+        <LoadingPanel label="Loading knocks" detail="Preparing weekly activity." />
+      ) : null}
 
-      <div className="grid gap-4">
-        <WeekSwitcher weekISO={weekISO} setWeekISO={setWeekISO} />
-        {!scope.hideFilters ? (
-          <TeamFilter
+      <div className={gridLoading ? "page-stack hidden" : "page-stack"}>
+        <PageHero
+          title="Knocks"
+          description="Weekly door activity by rep, manager, and location."
+          stats={[
+            { label: "Week", value: weekISO },
+            { label: "Location", value: location },
+            { label: "Manager", value: manager },
+            { label: "Access", value: canEditKnocks ? "Editor" : isDemo ? "Demo" : "Viewer" },
+          ]}
+        />
+
+        <div className="grid gap-4">
+          <WeekSwitcher weekISO={weekISO} setWeekISO={handleWeekChange} />
+          {!scope.hideFilters ? (
+            <TeamFilter
+              weekISO={weekISO}
+              location={location}
+              setLocation={setLocation}
+              manager={manager}
+              setManager={setManager}
+              canChange={isAdmin || isDemo}
+              showLocation={true}
+              showManager={!scope.lockManagerFilter || !!scope.managerFilter}
+              lockLocation={scope.lockLocationFilter}
+              lockManager={scope.lockManagerFilter}
+            />
+          ) : null}
+        </div>
+
+        <div className="md:hidden">
+          <MobileManagerAccordion
+            base="weeks"
             weekISO={weekISO}
-            location={location}
-            setLocation={setLocation}
-            manager={manager}
-            setManager={setManager}
-            canChange={isAdmin || isDemo}
-            showLocation={true}
-            showManager={!scope.lockManagerFilter || !!scope.managerFilter}
-            lockLocation={scope.lockLocationFilter}
-            lockManager={scope.lockManagerFilter}
+            metricKey="knocks"
+            goalKey="knocksGoal"
+            teamFilter={location}
+            managerFilter={manager}
+            repNameFilter={scope.repNameFilter}
           />
-        ) : null}
-      </div>
+        </div>
 
-      <div className="md:hidden">
-        <MobileManagerAccordion
+        <div className="hidden md:block">
+          <WeeklyChart
+            base="weeks"
+            weekISO={weekISO}
+            metricKey="knocks"
+            title="Weekly Knocks"
+            teamFilter={location}
+            managerFilter={manager}
+            repNameFilter={scope.repNameFilter}
+          />
+        </div>
+        <WeeklyTable
           base="weeks"
           weekISO={weekISO}
+          canEdit={canEditKnocks}
           metricKey="knocks"
           goalKey="knocksGoal"
+          title="Weekly Grid (Knocks)"
+          canEditReps={canEditReps}
           teamFilter={location}
           managerFilter={manager}
           repNameFilter={scope.repNameFilter}
+          onDataLoadingChange={setGridLoading}
         />
       </div>
-
-      <div className="hidden md:block">
-        <WeeklyChart
-          base="weeks"
-          weekISO={weekISO}
-          metricKey="knocks"
-          title="Weekly Knocks"
-          teamFilter={location}
-          managerFilter={manager}
-          repNameFilter={scope.repNameFilter}
-        />
-      </div>
-      <WeeklyTable
-        base="weeks"
-        weekISO={weekISO}
-        canEdit={canEditKnocks}
-        metricKey="knocks"
-        goalKey="knocksGoal"
-        title="Weekly Grid (Knocks)"
-        canEditReps={canEditReps}
-        teamFilter={location}
-        managerFilter={manager}
-        repNameFilter={scope.repNameFilter}
-      />
     </PageShell>
   );
 }
