@@ -971,6 +971,17 @@ html[data-theme="dark"] .data-table-shell .table tbody tr[class*="!bg-slate-100"
   background: rgba(32, 48, 74, 0.98) !important;
 }
 
+html[data-theme="dark"] .data-table-shell .table tbody tr.weekly-highlighted-row {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+html[data-theme="dark"] .data-table-shell .table tbody tr.weekly-highlighted-row td,
+html[data-theme="dark"] .data-table-shell .table tbody tr.weekly-highlighted-row td span,
+html[data-theme="dark"] .data-table-shell .table tbody tr.weekly-highlighted-row .btn {
+  color: #0f172a !important;
+}
+
 html[data-theme="dark"] .progress {
   background: rgba(75, 90, 116, 0.5);
 }

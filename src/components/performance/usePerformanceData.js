@@ -296,6 +296,7 @@ const normalizeAttOrder = (doc) => {
       data.data?.manager,
       data.data?.agentManager
     ),
+    location: firstValue(data.location, data.team, rawData.Location, rawData.Team, data.data?.location, data.data?.team),
     saleCount: Number(data.saleCount || 0),
     orderDateId,
     orderDate: data.orderDate || rawData.OrderDate || orderDateId,
@@ -340,6 +341,7 @@ const normalizeTFiberOrder = (doc) => {
       "Unassigned"
     ),
     manager: firstValue(data.manager, rawData.Manager, data.data?.manager),
+    location: firstValue(data.location, data.team, rawData.Location, rawData.Team, data.data?.location, data.data?.team),
     saleCount: 1,
     orderDateId,
     orderDate: data.orderDate || rawData["Order Date"] || orderDateId,
@@ -453,6 +455,8 @@ const buildDashboardData = (orders, knockTotalsByRep = new Map(), allTimeOrders 
       id: repKey,
       name: order.repName || "Unassigned",
       manager: order.manager || "",
+      team: order.location || order.team || "",
+      location: order.location || order.team || "",
       metrics: emptyMetrics(),
       orders: [],
       allTimeOrders: [],
@@ -460,6 +464,8 @@ const buildDashboardData = (orders, knockTotalsByRep = new Map(), allTimeOrders 
 
     existing.name = order.repName || existing.name;
     existing.manager = order.manager || existing.manager;
+    existing.team = order.location || order.team || existing.team || "";
+    existing.location = order.location || order.team || existing.location || "";
     existing.orders.push(order);
     applyOrderToMetrics(existing.metrics, order);
     repsMap.set(repKey, existing);
@@ -564,6 +570,43 @@ const buildManagerOptionsFromWeeks = (weekMap) => {
   return Array.from(managers);
 };
 
+const buildLocationOptionsFromWeeks = (weekMap) => {
+  const locations = new Set();
+  weekMap.forEach((reps) => {
+    reps.forEach((rep) => {
+      if (rep.deleted) return;
+      const location = clean(rep.team || rep.location);
+      if (location) locations.add(location);
+    });
+  });
+  return Array.from(locations);
+};
+
+const addWeeklyRepMeta = (order, weekMap) => {
+  const orderDateId = order.orderDateId || "";
+  if (!orderDateId) return order;
+
+  const orderDate = new Date(`${orderDateId}T00:00:00`);
+  if (Number.isNaN(orderDate.getTime())) return order;
+
+  const weekReps = weekMap.get(weekISOForDate(orderDate)) || [];
+  const orderRepName = normalizeText(order.repName);
+  if (!orderRepName) return order;
+
+  const matchingRep = weekReps.find((rep) => !rep.deleted && normalizeText(rep.name) === orderRepName);
+  if (!matchingRep) return order;
+
+  const manager = clean(matchingRep.manager) || order.manager || "";
+  const location = clean(matchingRep.team || matchingRep.location) || order.location || order.team || "";
+
+  return {
+    ...order,
+    manager,
+    location,
+    team: location,
+  };
+};
+
 const mergeOrdersByUid = (...orderSets) => {
   const merged = new Map();
 
@@ -651,6 +694,7 @@ export function usePerformanceData(dateRange, scope = {}) {
           sourceOrderBuckets.tfiberRepName
         ),
       ]
+        .map((order) => addWeeklyRepMeta(order, weekMap))
         .filter((order) =>
           !scopedRepNames || scopedRepNames.has(normalizeText(order.repName))
         )
@@ -663,6 +707,7 @@ export function usePerformanceData(dateRange, scope = {}) {
         data: {
           ...buildDashboardData(orders, knockTotalsByRep, scopedOrders),
           managerOptions: buildManagerOptionsFromWeeks(weekMap),
+          locationOptions: buildLocationOptionsFromWeeks(weekMap),
         },
         error: null,
       });

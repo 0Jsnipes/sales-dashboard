@@ -8,6 +8,7 @@ import { getDemoWeekRows } from "../demo/demoData.js";
 import { useAuthRole } from "../hooks/useAuth";
 import { buildAccessScope } from "../lib/accessScope.js";
 import { db } from "../lib/firebase";
+import { buildWeeklySalesRows, normalizeSalesUploadOrder } from "../lib/weeklySalesUploads.js";
 import { startOfWeek, toISO } from "../utils/weeks.js";
 
 const clampNum = (value) => (Number.isFinite(+value) && +value >= 0 ? Math.floor(+value) : 0);
@@ -34,86 +35,113 @@ export default function LeaderboardPage() {
   const [params, setParams] = useSearchParams();
   const location = scope.locationFilter || params.get("location") || "All";
   const manager = scope.managerFilter || params.get("manager") || "All";
-  const [leaders, setLeaders] = useState([]);
+  const [rawRows, setRawRows] = useState([]);
+  const [salesUploadOrders, setSalesUploadOrders] = useState([]);
 
   useEffect(() => {
     if (!weekISO) return undefined;
 
-    const normalize = (value) => (value ?? "").trim();
-    const locationFilter = normalize(location);
-    const managerFilter = normalize(manager);
-    const repNameFilter = normalize(scope.repNameFilter).toLowerCase();
-
-    const buildLeaders = (rows) => {
-      const normalized = rows
-        .filter((row) => {
-          if (row.deleted) return false;
-          if (
-            locationFilter &&
-            locationFilter !== "All" &&
-            normalize(row.team) !== locationFilter
-          ) {
-            return false;
-          }
-          if (
-            managerFilter &&
-            managerFilter !== "All" &&
-            normalize(row.manager) !== managerFilter
-          ) {
-            return false;
-          }
-          if (repNameFilter && normalize(row.name).toLowerCase() !== repNameFilter) {
-            return false;
-          }
-          return true;
-        })
-        .map((row) => {
-          const sales =
-            Array.isArray(row.sales) && row.sales.length === 7 ? row.sales : Array(7).fill(0);
-          const weeklyTotal = sales.reduce((sum, value) => sum + clampNum(value), 0);
-          return { ...row, sales, weeklyTotal };
-        });
-
-      const deduped = new Map();
-      normalized.forEach((row) => {
-        const key = keyForRep(row);
-        if (!key) return;
-        const existing = deduped.get(key);
-        if (!existing || row.weeklyTotal > existing.weeklyTotal) {
-          deduped.set(key, row);
-        }
-      });
-
-      const list = Array.from(deduped.values())
-        .map((row) => {
-          const goal = clampNum(row.salesGoal);
-          const pct = goal > 0 ? Math.min(100, Math.round((row.weeklyTotal / goal) * 100)) : 0;
-          return {
-            id: row.id,
-            name: row.name || "Unnamed",
-            manager: row.manager || "",
-            team: row.team || "",
-            weeklyTotal: row.weeklyTotal,
-            goal,
-            pct,
-          };
-        })
-        .sort((a, b) => b.weeklyTotal - a.weeklyTotal || a.name.localeCompare(b.name));
-
-      setLeaders(list);
-    };
-
     if (isDemo) {
-      buildLeaders(getDemoWeekRows(weekISO));
+      setRawRows(getDemoWeekRows(weekISO));
       return undefined;
     }
 
     const unsubscribe = onSnapshot(collection(db, "weeks", weekISO, "reps"), (snapshot) => {
-      buildLeaders(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+      setRawRows(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
     });
 
     return () => unsubscribe();
-  }, [isDemo, location, manager, scope.repNameFilter, weekISO]);
+  }, [isDemo, weekISO]);
+
+  useEffect(() => {
+    if (isDemo) {
+      setSalesUploadOrders([]);
+      return undefined;
+    }
+
+    const unsubAtt = onSnapshot(collection(db, "salesUploads", "att sales", "orders"), (snap) => {
+      setSalesUploadOrders((current) => {
+        const tfiber = current.filter((order) => order.provider !== "ATT");
+        return [...tfiber, ...snap.docs.map((docSnap) => normalizeSalesUploadOrder("att sales", docSnap))];
+      });
+    });
+    const unsubTFiber = onSnapshot(collection(db, "salesUploads", "t-fiber sales", "orders"), (snap) => {
+      setSalesUploadOrders((current) => {
+        const att = current.filter((order) => order.provider === "ATT");
+        return [...att, ...snap.docs.map((docSnap) => normalizeSalesUploadOrder("t-fiber sales", docSnap))];
+      });
+    });
+
+    return () => {
+      unsubAtt();
+      unsubTFiber();
+    };
+  }, [isDemo]);
+
+  const leaders = useMemo(() => {
+    const normalize = (value) => (value ?? "").trim();
+    const locationFilter = normalize(location);
+    const managerFilter = normalize(manager);
+    const repNameFilter = normalize(scope.repNameFilter).toLowerCase();
+    const rows = isDemo
+      ? rawRows
+      : buildWeeklySalesRows(rawRows, salesUploadOrders, weekISO);
+
+    const normalized = rows
+      .filter((row) => {
+        if (row.deleted) return false;
+        if (
+          locationFilter &&
+          locationFilter !== "All" &&
+          normalize(row.team) !== locationFilter
+        ) {
+          return false;
+        }
+        if (
+          managerFilter &&
+          managerFilter !== "All" &&
+          normalize(row.manager) !== managerFilter
+        ) {
+          return false;
+        }
+        if (repNameFilter && normalize(row.name).toLowerCase() !== repNameFilter) {
+          return false;
+        }
+        return true;
+      })
+      .map((row) => {
+        const sales =
+          Array.isArray(row.sales) && row.sales.length === 7 ? row.sales : Array(7).fill(0);
+        const weeklyTotal = sales.reduce((sum, value) => sum + clampNum(value), 0);
+        return { ...row, sales, weeklyTotal };
+      });
+
+    const deduped = new Map();
+    normalized.forEach((row) => {
+      const key = keyForRep(row);
+      if (!key) return;
+      const existing = deduped.get(key);
+      if (!existing || row.weeklyTotal > existing.weeklyTotal) {
+        deduped.set(key, row);
+      }
+    });
+
+    return Array.from(deduped.values())
+      .map((row) => {
+        const goal = clampNum(row.salesGoal);
+        const pct = goal > 0 ? Math.min(100, Math.round((row.weeklyTotal / goal) * 100)) : 0;
+        return {
+          id: row.id,
+          name: row.name || "Unnamed",
+          manager: row.manager || "",
+          team: row.team || "",
+          weeklyTotal: row.weeklyTotal,
+          goal,
+          pct,
+        };
+      })
+      .sort((a, b) => b.weeklyTotal - a.weeklyTotal || a.name.localeCompare(b.name));
+  }, [isDemo, location, manager, rawRows, salesUploadOrders, scope.repNameFilter, weekISO]);
 
   const ranked = useMemo(() => {
     let lastScore = null;

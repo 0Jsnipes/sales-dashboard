@@ -25,6 +25,13 @@ export function normalizeSalesRepKey(value) {
     .trim();
 }
 
+const clampNum = (value) => (Number.isFinite(+value) && +value >= 0 ? Math.floor(+value) : 0);
+
+function normalizeManualSales(value) {
+  const source = Array.isArray(value) ? value : [];
+  return Array.from({ length: 7 }, (_, index) => clampNum(source[index]));
+}
+
 function getRepAliases(row) {
   if (Array.isArray(row?.aliases)) return row.aliases;
   if (Array.isArray(row?.reportAliases)) return row.reportAliases;
@@ -82,6 +89,7 @@ export function buildWeeklySalesRows(baseRows, salesOrders, weekISO) {
     const normalizedRow = {
       ...row,
       sales: Array(7).fill(0),
+      manualSales: normalizeManualSales(row.manualSales),
     };
     [row.name, ...getRepAliases(row)].forEach((name) => {
       const key = normalizeSalesRepKey(name);
@@ -110,7 +118,17 @@ export function buildWeeklySalesRows(baseRows, salesOrders, weekISO) {
     row.sales[dayIndex] += Number(order.saleCount || 0);
   });
 
-  return (baseRows || []).map(
-    (row) => rowsByRep.get(normalizeSalesRepKey(row.name)) || { ...row, sales: Array(7).fill(0) }
-  );
+  return (baseRows || []).map((row) => {
+    const computedRow = rowsByRep.get(normalizeSalesRepKey(row.name)) || {
+      ...row,
+      sales: Array(7).fill(0),
+      manualSales: normalizeManualSales(row.manualSales),
+    };
+    const manualSales = normalizeManualSales(row.manualSales);
+    return {
+      ...computedRow,
+      manualSales,
+      sales: computedRow.sales.map((value, index) => value + manualSales[index]),
+    };
+  });
 }

@@ -221,6 +221,9 @@ const buildTrackerRange = (range) => buildExclusiveRange(range);
 const getTrackerDateId = (order) => order.dueDateId || order.orderDateId || "";
 const providerMatches = (order, providerFilter) =>
   providerFilter === "both" || order.provider === providerFilter;
+const normalizeLocationLabel = (value) => String(value ?? "").trim();
+const locationMatches = (value, locationFilter) =>
+  !locationFilter || normalizeLocationLabel(value) === normalizeLocationLabel(locationFilter);
 
 const buildInstallTrackerMetrics = (orders) => {
   const todayId = todayDateId();
@@ -343,8 +346,66 @@ const filterDataByProvider = (sourceData, providerFilter) => {
     },
   };
 };
-const selectComparisonMetrics = (sourceData, providerFilter, selectedRep, selectedRepName) => {
-  const filteredData = filterDataByProvider(sourceData || emptyData, providerFilter);
+const filterDataByLocation = (sourceData, locationFilter) => {
+  if (!locationFilter) return sourceData;
+
+  const orders = (sourceData.orders || []).filter((order) =>
+    locationMatches(order.location || order.team, locationFilter)
+  );
+  const scopedOrdersAllTime = (sourceData.scopedOrdersAllTime || []).filter((order) =>
+    locationMatches(order.location || order.team, locationFilter)
+  );
+  const reps = (sourceData.reps || [])
+    .map((rep) => {
+      if (!locationMatches(rep.location || rep.team, locationFilter)) return null;
+
+      const repOrders = (rep.orders || []).filter((order) =>
+        locationMatches(order.location || order.team, locationFilter)
+      );
+      const allTimeOrders = (rep.allTimeOrders || []).filter((order) =>
+        locationMatches(order.location || order.team, locationFilter)
+      );
+      const metrics = buildProviderMetrics(repOrders, rep.totalKnocks || 0);
+      const allTimeMetrics = buildProviderMetrics(allTimeOrders, 0);
+
+      return {
+        ...rep,
+        ...metrics,
+        allTimePendingInstalls: allTimeMetrics.pendingInstalls || 0,
+        allTimePastDueInstalls: allTimeMetrics.pastDueInstalls || 0,
+        allTimeNextPendingDueDateId: allTimeMetrics.nextPendingDueDateId || "",
+        allTimeOldestPastDueDateId: allTimeMetrics.oldestPastDueDateId || "",
+        orders: repOrders,
+        allTimeOrders,
+      };
+    })
+    .filter(Boolean);
+  const totalKnocks = reps.reduce((sum, rep) => sum + (rep.totalKnocks || 0), 0);
+  const companyKPIs = {
+    ...buildProviderMetrics(orders, totalKnocks),
+    activeReps: reps.filter((rep) => rep.totalSales > 0).length,
+  };
+  const allTimeCompanyMetrics = buildProviderMetrics(scopedOrdersAllTime, 0);
+
+  return {
+    ...sourceData,
+    orders,
+    scopedOrdersAllTime,
+    reps,
+    companyKPIs: {
+      ...companyKPIs,
+      allTimePendingInstalls: allTimeCompanyMetrics.pendingInstalls || 0,
+      allTimePastDueInstalls: allTimeCompanyMetrics.pastDueInstalls || 0,
+      allTimeNextPendingDueDateId: allTimeCompanyMetrics.nextPendingDueDateId || "",
+      allTimeOldestPastDueDateId: allTimeCompanyMetrics.oldestPastDueDateId || "",
+    },
+  };
+};
+const selectComparisonMetrics = (sourceData, providerFilter, locationFilter, selectedRep, selectedRepName) => {
+  const filteredData = filterDataByLocation(
+    filterDataByProvider(sourceData || emptyData, providerFilter),
+    locationFilter
+  );
   if (!selectedRep) return filteredData.companyKPIs;
 
   const normalizedSelectedName = normalizeName(selectedRepName);
@@ -454,6 +515,7 @@ export default function PerformanceDashboard() {
   const canExportTrackerOrders = authState.isAdminRole || authState.isSuperAdmin;
   const canManageAssignments = isPrimarySuperAdmin && !authState.isPreviewing;
   const [managerFilter, setManagerFilter] = useState(scope.managerFilter || "");
+  const [locationFilter, setLocationFilter] = useState(scope.locationFilter || "");
   const [selectedRep, setSelectedRep] = useState(null);
   const [selectedRepSnapshot, setSelectedRepSnapshot] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -500,8 +562,8 @@ export default function PerformanceDashboard() {
   const { data: yearComparisonData } = usePerformanceData(comparisonRanges.year.previous, effectiveScope);
   const dashboardData = data || emptyData;
   const filteredDashboardData = useMemo(
-    () => filterDataByProvider(dashboardData, providerFilter),
-    [dashboardData, providerFilter]
+    () => filterDataByLocation(filterDataByProvider(dashboardData, providerFilter), locationFilter),
+    [dashboardData, locationFilter, providerFilter]
   );
   const managerOptions = useMemo(
     () => {
@@ -524,6 +586,24 @@ export default function PerformanceDashboard() {
     },
     [managerOptionsData, providerFilter]
   );
+  const locationOptions = useMemo(() => {
+    const optionData = filterDataByProvider(managerOptionsData || emptyData, providerFilter);
+    const optionsByKey = new Map();
+    const addOption = (value) => {
+      const label = normalizeLocationLabel(value);
+      if (!label) return;
+      const key = label.toLowerCase();
+      if (!optionsByKey.has(key)) optionsByKey.set(key, label);
+    };
+
+    (optionData.orders || []).forEach((order) => addOption(order.location || order.team));
+    (optionData.reps || []).forEach((rep) => addOption(rep.location || rep.team));
+    (managerOptionsData?.locationOptions || []).forEach(addOption);
+
+    return Array.from(optionsByKey.values()).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" })
+    );
+  }, [managerOptionsData, providerFilter]);
 
   useEffect(() => {
     window.localStorage.setItem(DATE_RANGE_STORAGE_KEY, JSON.stringify(dateRange));
@@ -532,6 +612,10 @@ export default function PerformanceDashboard() {
   useEffect(() => {
     setManagerFilter(normalizeManagerLabel(scope.managerFilter || ""));
   }, [scope.managerFilter]);
+
+  useEffect(() => {
+    setLocationFilter(scope.locationFilter || "");
+  }, [scope.locationFilter]);
 
   useEffect(() => {
     setTrackerProviderFilter(providerFilter);
@@ -545,6 +629,15 @@ export default function PerformanceDashboard() {
       setSelectedRepSnapshot(null);
     }
   }, [managerFilter, managerOptions, managerOptionsData, scope.lockManagerFilter]);
+
+  useEffect(() => {
+    if (scope.lockLocationFilter || !locationFilter || !managerOptionsData) return;
+    if (!locationOptions.includes(locationFilter)) {
+      setLocationFilter("");
+      setSelectedRep(null);
+      setSelectedRepSnapshot(null);
+    }
+  }, [locationFilter, locationOptions, managerOptionsData, scope.lockLocationFilter]);
 
   useEffect(() => {
     if (!isPrimarySuperAdmin) return undefined;
@@ -600,6 +693,11 @@ export default function PerformanceDashboard() {
 
   const handleManagerFilterChange = (value) => {
     setManagerFilter(value);
+    setSelectedRep(null);
+    setSelectedRepSnapshot(null);
+  };
+  const handleLocationFilterChange = (value) => {
+    setLocationFilter(value);
     setSelectedRep(null);
     setSelectedRepSnapshot(null);
   };
@@ -660,8 +758,9 @@ export default function PerformanceDashboard() {
     [filteredDashboardData.orders, selectedRep, selectedRepData]
   );
   const trackerSourceOrders = useMemo(() => {
+    const locationScopedData = filterDataByLocation(dashboardData, locationFilter);
     const sourceRep = selectedRep
-      ? dashboardData.reps.find(
+      ? locationScopedData.reps.find(
           (rep) =>
             rep.id === selectedRep ||
             (selectedRepLabel && normalizeName(rep.name) === normalizeName(selectedRepLabel))
@@ -669,10 +768,10 @@ export default function PerformanceDashboard() {
       : null;
     const sourceOrders = selectedRep
       ? sourceRep?.allTimeOrders || []
-      : dashboardData.scopedOrdersAllTime || [];
+      : locationScopedData.scopedOrdersAllTime || [];
 
     return sourceOrders.filter((order) => providerMatches(order, trackerProviderFilter));
-  }, [dashboardData.reps, dashboardData.scopedOrdersAllTime, selectedRep, selectedRepLabel, trackerProviderFilter]);
+  }, [dashboardData, locationFilter, selectedRep, selectedRepLabel, trackerProviderFilter]);
   const trackerMetrics = useMemo(() => {
     const range = buildTrackerRange(trackerDateRange);
     const filtered = trackerSourceOrders.filter(
@@ -796,6 +895,7 @@ export default function PerformanceDashboard() {
           { label: "Range", value: formatDateRangeSummary(dateRange) },
           { label: "Reps", value: filteredDashboardData.reps.length || 0 },
           { label: "Scope", value: selectedRep ? selectedRepLabel || "Selected rep" : "All reps" },
+          { label: "Location", value: locationFilter || "All" },
           { label: "Sales", value: filteredDashboardData.companyKPIs.totalSales || 0 },
         ]}
       />
@@ -803,11 +903,11 @@ export default function PerformanceDashboard() {
       <section className="toolbar-card">
         <SectionIntro
           title="Controls"
-          description="Filter by manager, rep, and custom date range."
+          description="Filter by manager, location, rep, and custom date range."
         />
 
         <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {!scope.hideFilters ? (
               <>
                 <label className="grid gap-2">
@@ -824,6 +924,25 @@ export default function PerformanceDashboard() {
                     {managerOptions.map((manager) => (
                       <option key={manager} value={manager}>
                         {manager}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="grid gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Location
+                  </span>
+                  <select
+                    value={scope.lockLocationFilter ? scope.locationFilter || "" : locationFilter}
+                    onChange={(event) => handleLocationFilterChange(event.target.value)}
+                    disabled={scope.lockLocationFilter}
+                    className="select select-bordered h-12 w-full"
+                  >
+                    <option value="">{scope.lockLocationFilter ? "Assigned location" : "All locations"}</option>
+                    {locationOptions.map((location) => (
+                      <option key={location} value={location}>
+                        {location}
                       </option>
                     ))}
                   </select>
@@ -933,12 +1052,14 @@ export default function PerformanceDashboard() {
             currentMetrics: selectComparisonMetrics(
               currentWeekComparisonData,
               providerFilter,
+              locationFilter,
               selectedRep,
               selectedRepLabel
             ),
             previousMetrics: selectComparisonMetrics(
               weekComparisonData,
               providerFilter,
+              locationFilter,
               selectedRep,
               selectedRepLabel
             ),
@@ -950,12 +1071,14 @@ export default function PerformanceDashboard() {
             currentMetrics: selectComparisonMetrics(
               currentMonthComparisonData,
               providerFilter,
+              locationFilter,
               selectedRep,
               selectedRepLabel
             ),
             previousMetrics: selectComparisonMetrics(
               monthComparisonData,
               providerFilter,
+              locationFilter,
               selectedRep,
               selectedRepLabel
             ),
@@ -967,12 +1090,14 @@ export default function PerformanceDashboard() {
             currentMetrics: selectComparisonMetrics(
               currentYearComparisonData,
               providerFilter,
+              locationFilter,
               selectedRep,
               selectedRepLabel
             ),
             previousMetrics: selectComparisonMetrics(
               yearComparisonData,
               providerFilter,
+              locationFilter,
               selectedRep,
               selectedRepLabel
             ),

@@ -6,7 +6,6 @@ import {
   doc,
   onSnapshot,
   collection,
-  collectionGroup,
   documentId,
   query,
   setDoc,
@@ -161,39 +160,6 @@ function UploadIcon() {
   );
 }
 
-function UploadChip({
-  title,
-  active = false,
-  className = "",
-  onClick,
-  onKeyDown,
-  onDragEnter,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-}) {
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      className={`inline-flex h-9 min-w-[108px] cursor-pointer items-center justify-center gap-1.5 rounded-full border px-2.5 text-center transition ${
-        active
-          ? "border-slate-900 bg-slate-900/8 shadow-sm"
-          : "border-slate-300 bg-white/68 hover:border-slate-400 hover:bg-white"
-      } ${className}`}
-      onClick={onClick}
-      onKeyDown={onKeyDown}
-      onDragEnter={onDragEnter}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-    >
-      <UploadIcon />
-      <span className="text-[11px] font-semibold tracking-[0.02em] text-slate-900">{title}</span>
-    </div>
-  );
-}
-
 export default function WeeklyTable({
   base = "weeks",
   weekISO,
@@ -221,10 +187,18 @@ export default function WeeklyTable({
   const [inactiveModalOpen, setInactiveModalOpen] = useState(false);
   const [teamManagerOpen, setTeamManagerOpen] = useState(false);
   const [teamManagerSaving, setTeamManagerSaving] = useState(false);
+  const [manualSaleOpen, setManualSaleOpen] = useState(false);
+  const [manualSaleRepId, setManualSaleRepId] = useState("");
+  const [manualSaleDayIndex, setManualSaleDayIndex] = useState(0);
+  const [manualSaleCount, setManualSaleCount] = useState("1");
+  const [manualSaleProgram, setManualSaleProgram] = useState("ATT");
+  const [manualSaleUid, setManualSaleUid] = useState("");
+  const [manualSaleSaving, setManualSaleSaving] = useState(false);
   const [importStatus, setImportStatus] = useState("");
   const [activeDropzone, setActiveDropzone] = useState("");
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
   const [mobileSalesUploadOpen, setMobileSalesUploadOpen] = useState(false);
-  const [dbUploadDatesOpen, setDbUploadDatesOpen] = useState(false);
   const [dbUploadDateInput, setDbUploadDateInput] = useState("");
   const [dbUploadDateIds, setDbUploadDateIds] = useState([]);
   const [uploadedStyleOpen, setUploadedStyleOpen] = useState(false);
@@ -331,6 +305,10 @@ export default function WeeklyTable({
       sales: Array.isArray(r.sales) && r.sales.length === 7 ? r.sales : Array(7).fill(0),
       knocks: Array.isArray(r.knocks) && r.knocks.length === 7 ? r.knocks : Array(7).fill(0),
       aliases: Array.isArray(r.aliases) ? r.aliases : [],
+      manualSales: Array.isArray(r.manualSales)
+        ? Array.from({ length: 7 }, (_, index) => clampNum(r.manualSales[index]))
+        : Array(7).fill(0),
+      manualSalesEntries: Array.isArray(r.manualSalesEntries) ? r.manualSalesEntries : [],
       salesGoal: clampNum(r.salesGoal),
       knocksGoal: clampNum(r.knocksGoal),
       deleted: !!r.deleted,
@@ -670,6 +648,100 @@ export default function WeeklyTable({
       { merge: true }
     );
 
+  const openManualSaleModal = () => {
+    setManualSaleRepId(rows[0]?.id || "");
+    setManualSaleDayIndex(0);
+    setManualSaleCount("1");
+    setManualSaleProgram("ATT");
+    setManualSaleUid("");
+    setManualSaleOpen(true);
+  };
+
+  const addManualSale = async (event) => {
+    event.preventDefault();
+    const rep = rows.find((row) => row.id === manualSaleRepId);
+    const amount = clampNum(manualSaleCount);
+    const dayIndex = Math.max(0, Math.min(6, Number(manualSaleDayIndex) || 0));
+    const program = manualSaleProgram === "T-Fiber" ? "T-Fiber" : "ATT";
+    const saleUid = manualSaleUid.trim();
+
+    if (!rep || amount <= 0 || !saleUid) return;
+
+    setManualSaleSaving(true);
+    try {
+      const manualSales = Array.from({ length: 7 }, (_, index) =>
+        clampNum(rep.manualSales?.[index])
+      );
+      manualSales[dayIndex] += amount;
+      const manualSalesEntries = Array.isArray(rep.manualSalesEntries)
+        ? rep.manualSalesEntries
+        : [];
+      const manualSaleEntry = {
+        id: `${program.toLowerCase().replace(/[^a-z0-9]+/g, "-")}:${saleUid}`,
+        uid: saleUid,
+        program,
+        provider: program,
+        dayIndex,
+        weekISO,
+        saleCount: amount,
+        repId: rep.id || "",
+        repName: rep.name || "",
+        createdAt: new Date().toISOString(),
+        createdBy: user?.uid || null,
+        createdByEmail: user?.email || null,
+      };
+
+      await setDoc(
+        doc(db, base, weekISO, "reps", rep.id),
+        {
+          name: rep.name || "",
+          email: rep.email || "",
+          manager: rep.manager || "",
+          team: rep.team || "",
+          aliases: Array.isArray(rep.aliases) ? rep.aliases : [],
+          salesGoal: clampNum(rep.salesGoal),
+          knocksGoal: clampNum(rep.knocksGoal),
+          manualSales,
+          manualSalesEntries: [...manualSalesEntries, manualSaleEntry],
+        },
+        { merge: true }
+      );
+
+      try {
+        await addDoc(collection(db, "auditLogs"), {
+          action: "create",
+          entity: "manualSale",
+          entityId: rep.id || null,
+          after: {
+            value: amount,
+            uid: saleUid,
+            program,
+          },
+          meta: {
+            weekISO,
+            dayIndex,
+            repName: rep.name || "",
+            base,
+          },
+          actor: {
+            uid: user?.uid || null,
+            email: user?.email || null,
+          },
+          createdAt: serverTimestamp(),
+        });
+      } catch (err) {
+        console.error("Failed to write manual sales audit log", err);
+      }
+
+      setImportStatus(
+        `Added ${amount} manual ${program} sale${amount === 1 ? "" : "s"} for ${rep.name || "rep"} on ${DAYS[dayIndex]} with UID ${saleUid}.`
+      );
+      setManualSaleOpen(false);
+    } finally {
+      setManualSaleSaving(false);
+    }
+  };
+
   const removeRep = async (id) =>
     setDoc(
       doc(db, base, weekISO, "reps", id),
@@ -981,8 +1053,10 @@ export default function WeeklyTable({
   const saveTeamManagers = async (drafts) => {
     if (!canUseSalesAdminTools) return;
     const changedRows = rows.filter((row) => {
-      const nextManager = cleanCell(drafts[row.id]);
-      return nextManager !== cleanCell(row.manager);
+      const draft = drafts[row.id] || {};
+      const nextManager = cleanCell(draft.manager);
+      const nextTeam = cleanCell(draft.team);
+      return nextManager !== cleanCell(row.manager) || nextTeam !== cleanCell(row.team);
     });
 
     if (!changedRows.length) {
@@ -992,117 +1066,20 @@ export default function WeeklyTable({
 
     setTeamManagerSaving(true);
     try {
-      const operations = [];
-      const seenRefs = new Set();
-      const addUpdate = (ref, manager) => {
-        const path = ref.path;
-        if (seenRefs.has(path)) return;
-        seenRefs.add(path);
-        operations.push((batch) =>
+      const operations = changedRows.map((row) => {
+        const draft = drafts[row.id] || {};
+        return (batch) =>
           batch.set(
-            ref,
+            doc(db, base, weekISO, "reps", row.id),
             {
-              manager,
+              manager: cleanCell(draft.manager),
+              team: cleanCell(draft.team),
               updatedAt: serverTimestamp(),
               updatedBy: user?.uid || null,
             },
             { merge: true }
-          )
-        );
-      };
-
-      for (const row of changedRows) {
-        const nextManager = cleanCell(drafts[row.id]);
-        const repQueries = [];
-
-        if (row.name) {
-          repQueries.push(query(collectionGroup(db, "reps"), where("name", "==", row.name)));
-        }
-        if (row.email) {
-          repQueries.push(query(collectionGroup(db, "reps"), where("email", "==", row.email)));
-        }
-
-        addUpdate(doc(db, base, weekISO, "reps", row.id), nextManager);
-
-        for (const repQuery of repQueries) {
-          const repSnap = await getDocs(repQuery);
-          repSnap.docs
-            .filter((docSnap) => docSnap.ref.path.startsWith(`${base}/`))
-            .forEach((docSnap) => addUpdate(docSnap.ref, nextManager));
-        }
-
-        const rosterQueries = [];
-        if (row.name) {
-          rosterQueries.push(query(collection(db, "roster"), where("name", "==", row.name)));
-        }
-        if (row.email) {
-          rosterQueries.push(query(collection(db, "roster"), where("email", "==", row.email)));
-        }
-
-        for (const rosterQuery of rosterQueries) {
-          const rosterSnap = await getDocs(rosterQuery);
-          rosterSnap.docs.forEach((rosterDoc) => addUpdate(rosterDoc.ref, nextManager));
-        }
-
-        const salesUploadQueries = [];
-        if (row.name) {
-          salesUploadQueries.push({
-            ref: query(
-              collection(db, "salesUploads", ATT_DB_GROUP, "orders"),
-              where("repName", "==", row.name)
-            ),
-            patch: {
-              manager: nextManager,
-              agentManager: nextManager,
-              rawData: { AgentManager: nextManager },
-              data: { agentManager: nextManager },
-            },
-          });
-          salesUploadQueries.push({
-            ref: query(
-              collection(db, "salesUploads", ATT_DB_GROUP, "orders"),
-              where("salespersonName", "==", row.name)
-            ),
-            patch: {
-              manager: nextManager,
-              agentManager: nextManager,
-              rawData: { AgentManager: nextManager },
-              data: { agentManager: nextManager },
-            },
-          });
-          salesUploadQueries.push({
-            ref: query(
-              collection(db, "salesUploads", T_FIBER_DB_GROUP, "orders"),
-              where("repName", "==", row.name)
-            ),
-            patch: {
-              manager: nextManager,
-              rawData: { Manager: nextManager },
-              data: { manager: nextManager },
-            },
-          });
-        }
-
-        for (const uploadQuery of salesUploadQueries) {
-          const uploadSnap = await getDocs(uploadQuery.ref);
-          uploadSnap.docs.forEach((uploadDoc) => {
-            const path = uploadDoc.ref.path;
-            if (seenRefs.has(path)) return;
-            seenRefs.add(path);
-            operations.push((batch) =>
-              batch.set(
-                uploadDoc.ref,
-                {
-                  ...uploadQuery.patch,
-                  updatedAt: serverTimestamp(),
-                  updatedBy: user?.uid || null,
-                },
-                { merge: true }
-              )
-            );
-          });
-        }
-      }
+          );
+      });
 
       await commitBatchOperations(operations, 350);
 
@@ -1501,13 +1478,6 @@ export default function WeeklyTable({
     },
   });
 
-  const openFilePickerOnKey = (event, ref) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      ref.current?.click();
-    }
-  };
-
   const isSalesUploadMobileFab = canEdit && metricKey === "sales";
   const metricLabel = metricKey === "knocks" ? "Knocks" : "Sales";
   const mobileSalesUploadFab = isSalesUploadMobileFab
@@ -1659,202 +1629,158 @@ export default function WeeklyTable({
 
         {showHeaderActions && (
           <div className="flex flex-wrap items-center gap-2 rounded-[24px] border border-slate-200/70 bg-white/74 p-2 shadow-sm">
-            <button className="btn btn-sm" onClick={downloadExcel} type="button">
-              <DownloadIcon />
-              <span>Download Excel</span>
-            </button>
-            {canUseSalesAdminTools ? (
-              <div className="relative">
-                <button
-                  className="btn btn-outline btn-sm"
-                  onClick={() => setUploadedStyleOpen((current) => !current)}
-                  type="button"
-                  aria-expanded={uploadedStyleOpen}
-                >
-                  <DownloadIcon />
-                  <span>Uploaded Style</span>
-                </button>
+            <div className="relative">
+              <button
+                className="btn btn-sm"
+                onClick={() => {
+                  setDownloadMenuOpen((current) => !current);
+                  setUploadMenuOpen(false);
+                  setUploadedStyleOpen(false);
+                }}
+                type="button"
+                aria-expanded={downloadMenuOpen}
+              >
+                <DownloadIcon />
+                <span>Download</span>
+              </button>
 
-                {uploadedStyleOpen ? (
-                  <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-[min(88vw,360px)] rounded-[18px] border border-slate-200 bg-white p-3 text-sm shadow-[0_18px_42px_rgba(15,23,42,0.16)]">
-                    <div className="grid gap-2">
+              {downloadMenuOpen ? (
+                <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 grid w-[min(88vw,240px)] gap-2 rounded-[18px] border border-slate-200 bg-white p-2 text-sm shadow-[0_18px_42px_rgba(15,23,42,0.16)]">
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm justify-start"
+                    onClick={() => {
+                      downloadExcel();
+                      setDownloadMenuOpen(false);
+                    }}
+                  >
+                    Excel
+                  </button>
+                  {canUseSalesAdminTools ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm justify-start"
+                      onClick={() => {
+                        setUploadedStyleOpen(true);
+                        setDownloadMenuOpen(false);
+                      }}
+                    >
+                      Uploaded Style
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {uploadedStyleOpen ? (
+                <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-[min(88vw,360px)] rounded-[18px] border border-slate-200 bg-white p-3 text-sm shadow-[0_18px_42px_rgba(15,23,42,0.16)]">
+                  <div className="grid gap-2">
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${!uploadedStyleAllTime && uploadedStyleDateIds.length === 0 ? "btn-primary" : "btn-outline"}`}
+                      onClick={() => {
+                        setUploadedStyleAllTime(false);
+                        setUploadedStyleDateIds([]);
+                      }}
+                    >
+                      Current Week
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${uploadedStyleAllTime ? "btn-primary" : "btn-outline"}`}
+                      onClick={() => {
+                        setUploadedStyleAllTime(true);
+                        setUploadedStyleDateIds([]);
+                      }}
+                    >
+                      All Time
+                    </button>
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      type="date"
+                      className="input input-bordered input-sm h-9 min-h-9 min-w-0 flex-1"
+                      value={uploadedStyleDateInput}
+                      onChange={(event) => setUploadedStyleDateInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          addUploadedStyleDate();
+                        }
+                      }}
+                      aria-label="Uploaded style export date"
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={addUploadedStyleDate}
+                      disabled={!uploadedStyleDateInput}
+                    >
+                      Add
+                    </button>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {uploadedStyleDateIds.length > 0 ? (
+                      uploadedStyleDateIds.map((dateId) => (
+                        <button
+                          key={dateId}
+                          type="button"
+                          className="inline-flex h-8 items-center gap-1 rounded-full border border-slate-300 bg-slate-50 px-2.5 text-[11px] font-semibold text-slate-800"
+                          onClick={() => removeUploadedStyleDate(dateId)}
+                          title="Remove export date"
+                        >
+                          <span>{dateId}</span>
+                          <span aria-hidden="true">x</span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                        {uploadedStyleAllTime
+                          ? "Export will include every uploaded order in the current filters."
+                          : "No dates selected. Export will use the current week."}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-3 flex justify-end gap-2">
+                    {uploadedStyleDateIds.length > 0 || uploadedStyleAllTime ? (
                       <button
                         type="button"
-                        className={`btn btn-sm ${!uploadedStyleAllTime && uploadedStyleDateIds.length === 0 ? "btn-primary" : "btn-outline"}`}
+                        className="btn btn-ghost btn-sm"
                         onClick={() => {
                           setUploadedStyleAllTime(false);
                           setUploadedStyleDateIds([]);
                         }}
                       >
-                        Current Week
+                        Reset
                       </button>
-                      <button
-                        type="button"
-                        className={`btn btn-sm ${uploadedStyleAllTime ? "btn-primary" : "btn-outline"}`}
-                        onClick={() => {
-                          setUploadedStyleAllTime(true);
-                          setUploadedStyleDateIds([]);
-                        }}
-                      >
-                        All Time
-                      </button>
-                    </div>
-
-                    <div className="mt-3 flex items-center gap-2">
-                      <input
-                        type="date"
-                        className="input input-bordered input-sm h-9 min-h-9 min-w-0 flex-1"
-                        value={uploadedStyleDateInput}
-                        onChange={(event) => setUploadedStyleDateInput(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            addUploadedStyleDate();
-                          }
-                        }}
-                        aria-label="Uploaded style export date"
-                      />
-                      <button
-                        type="button"
-                        className="btn btn-sm"
-                        onClick={addUploadedStyleDate}
-                        disabled={!uploadedStyleDateInput}
-                      >
-                        Add
-                      </button>
-                    </div>
-
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {uploadedStyleDateIds.length > 0 ? (
-                        uploadedStyleDateIds.map((dateId) => (
-                          <button
-                            key={dateId}
-                            type="button"
-                            className="inline-flex h-8 items-center gap-1 rounded-full border border-slate-300 bg-slate-50 px-2.5 text-[11px] font-semibold text-slate-800"
-                            onClick={() => removeUploadedStyleDate(dateId)}
-                            title="Remove export date"
-                          >
-                            <span>{dateId}</span>
-                            <span aria-hidden="true">x</span>
-                          </button>
-                        ))
-                      ) : (
-                        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                          {uploadedStyleAllTime
-                            ? "Export will include every uploaded order in the current filters."
-                            : "No dates selected. Export will use the current week."}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mt-3 flex justify-end gap-2">
-                      {uploadedStyleDateIds.length > 0 || uploadedStyleAllTime ? (
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-sm"
-                          onClick={() => {
-                            setUploadedStyleAllTime(false);
-                            setUploadedStyleDateIds([]);
-                          }}
-                        >
-                          Reset
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="btn btn-sm"
-                        onClick={() => {
-                          downloadUploadedStyleExcel();
-                          setUploadedStyleOpen(false);
-                        }}
-                      >
-                        Download
-                      </button>
-                    </div>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => {
+                        downloadUploadedStyleExcel();
+                        setUploadedStyleOpen(false);
+                      }}
+                    >
+                      Download
+                    </button>
                   </div>
-                ) : null}
-              </div>
-            ) : null}
+                </div>
+              ) : null}
+            </div>
             {canEdit && metricKey === "sales" && (
               <>
-                <div className="relative">
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    onClick={() => setDbUploadDatesOpen((current) => !current)}
-                    aria-expanded={dbUploadDatesOpen}
-                  >
-                    DB Dates{dbUploadDateIds.length ? ` (${dbUploadDateIds.length})` : ""}
-                  </button>
-
-                  {dbUploadDatesOpen ? (
-                    <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-[min(88vw,340px)] rounded-[18px] border border-slate-200 bg-white p-3 text-sm shadow-[0_18px_42px_rgba(15,23,42,0.16)]">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="date"
-                          className="input input-bordered input-sm h-9 min-h-9 min-w-0 flex-1"
-                          value={dbUploadDateInput}
-                          onChange={(event) => setDbUploadDateInput(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              addDbUploadDate();
-                            }
-                          }}
-                          aria-label="DB upload order date"
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-sm"
-                          onClick={addDbUploadDate}
-                          disabled={!dbUploadDateInput}
-                        >
-                          Add
-                        </button>
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {dbUploadDateIds.length > 0 ? (
-                          dbUploadDateIds.map((dateId) => (
-                            <button
-                              key={dateId}
-                              type="button"
-                              className="inline-flex h-8 items-center gap-1 rounded-full border border-slate-300 bg-slate-50 px-2.5 text-[11px] font-semibold text-slate-800"
-                              onClick={() => removeDbUploadDate(dateId)}
-                              title="Remove DB upload date"
-                            >
-                              <span>{dateId}</span>
-                              <span aria-hidden="true">x</span>
-                            </button>
-                          ))
-                        ) : (
-                          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                            No dates selected. DB uploads will use every valid row in the file.
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="mt-3 flex justify-end gap-2">
-                        {dbUploadDateIds.length > 0 ? (
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-sm"
-                            onClick={() => setDbUploadDateIds([])}
-                          >
-                            Clear
-                          </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="btn btn-sm"
-                          onClick={() => setDbUploadDatesOpen(false)}
-                        >
-                          Done
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={openManualSaleModal}
+                  disabled={rows.length === 0}
+                >
+                  <PlusIcon />
+                  <span>Manual Sale</span>
+                </button>
                 <input
                   ref={attDbFileInputRef}
                   type="file"
@@ -1869,31 +1795,115 @@ export default function WeeklyTable({
                   className="hidden"
                   onChange={handleTFiberDbUpload}
                 />
-                <div className="hidden items-center gap-2 md:flex">
-                  <UploadChip
-                    title="ATT DB"
-                    active={activeDropzone === "att-db-sales"}
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="btn btn-sm"
                     onClick={() => {
-                      setDbUploadDatesOpen(false);
-                      attDbFileInputRef.current?.click();
+                      setUploadMenuOpen((current) => !current);
+                      setDownloadMenuOpen(false);
+                      setUploadedStyleOpen(false);
                     }}
-                    onKeyDown={(event) =>
-                      openFilePickerOnKey(event, attDbFileInputRef)
-                    }
-                    {...getDropzoneHandlers("att-db-sales", importAttSalesToDb)}
-                  />
-                  <UploadChip
-                    title="T-Fiber DB"
-                    active={activeDropzone === "tfiber-db-sales"}
-                    onClick={() => {
-                      setDbUploadDatesOpen(false);
-                      tFiberDbFileInputRef.current?.click();
-                    }}
-                    onKeyDown={(event) =>
-                      openFilePickerOnKey(event, tFiberDbFileInputRef)
-                    }
-                    {...getDropzoneHandlers("tfiber-db-sales", importTFiberSalesToDb)}
-                  />
+                    aria-expanded={uploadMenuOpen}
+                  >
+                    <UploadIcon />
+                    <span>Upload</span>
+                  </button>
+
+                  {uploadMenuOpen ? (
+                    <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-[min(88vw,360px)] rounded-[18px] border border-slate-200 bg-white p-3 text-sm shadow-[0_18px_42px_rgba(15,23,42,0.16)]">
+                      <div className="grid gap-2">
+                        <button
+                          type="button"
+                          className={`btn btn-sm justify-start ${
+                            activeDropzone === "att-db-sales" ? "btn-primary" : "btn-outline"
+                          }`}
+                          onClick={() => {
+                            setUploadMenuOpen(false);
+                            attDbFileInputRef.current?.click();
+                          }}
+                          {...getDropzoneHandlers("att-db-sales", importAttSalesToDb)}
+                        >
+                          ATT DB
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn btn-sm justify-start ${
+                            activeDropzone === "tfiber-db-sales" ? "btn-primary" : "btn-outline"
+                          }`}
+                          onClick={() => {
+                            setUploadMenuOpen(false);
+                            tFiberDbFileInputRef.current?.click();
+                          }}
+                          {...getDropzoneHandlers("tfiber-db-sales", importTFiberSalesToDb)}
+                        >
+                          T-Fiber DB
+                        </button>
+                      </div>
+
+                      <div className="mt-3 border-t border-slate-200 pt-3">
+                        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          DB Dates{dbUploadDateIds.length ? ` (${dbUploadDateIds.length})` : ""}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="date"
+                            className="input input-bordered input-sm h-9 min-h-9 min-w-0 flex-1"
+                            value={dbUploadDateInput}
+                            onChange={(event) => setDbUploadDateInput(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                addDbUploadDate();
+                              }
+                            }}
+                            aria-label="DB upload order date"
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={addDbUploadDate}
+                            disabled={!dbUploadDateInput}
+                          >
+                            Add
+                          </button>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {dbUploadDateIds.length > 0 ? (
+                            dbUploadDateIds.map((dateId) => (
+                              <button
+                                key={dateId}
+                                type="button"
+                                className="inline-flex h-8 items-center gap-1 rounded-full border border-slate-300 bg-slate-50 px-2.5 text-[11px] font-semibold text-slate-800"
+                                onClick={() => removeDbUploadDate(dateId)}
+                                title="Remove DB upload date"
+                              >
+                                <span>{dateId}</span>
+                                <span aria-hidden="true">x</span>
+                              </button>
+                            ))
+                          ) : (
+                            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                              No dates selected. DB uploads will use every valid row in the file.
+                            </div>
+                          )}
+                        </div>
+
+                        {dbUploadDateIds.length > 0 ? (
+                          <div className="mt-3 flex justify-end">
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              onClick={() => setDbUploadDateIds([])}
+                            >
+                              Clear dates
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </>
             )}
@@ -1906,13 +1916,39 @@ export default function WeeklyTable({
                   className="hidden"
                   onChange={handleKnocksImport}
                 />
-                <UploadChip
-                  title="Knocks"
-                  active={activeDropzone === "knocks-upload"}
-                  onClick={() => knockFileInputRef.current?.click()}
-                  onKeyDown={(event) => openFilePickerOnKey(event, knockFileInputRef)}
-                  {...getDropzoneHandlers("knocks-upload", importKnocksFile)}
-                />
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => {
+                      setUploadMenuOpen((current) => !current);
+                      setDownloadMenuOpen(false);
+                      setUploadedStyleOpen(false);
+                    }}
+                    aria-expanded={uploadMenuOpen}
+                  >
+                    <UploadIcon />
+                    <span>Upload</span>
+                  </button>
+
+                  {uploadMenuOpen ? (
+                    <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 grid w-[min(88vw,240px)] gap-2 rounded-[18px] border border-slate-200 bg-white p-2 text-sm shadow-[0_18px_42px_rgba(15,23,42,0.16)]">
+                      <button
+                        type="button"
+                        className={`btn btn-sm justify-start ${
+                          activeDropzone === "knocks-upload" ? "btn-primary" : "btn-outline"
+                        }`}
+                        onClick={() => {
+                          setUploadMenuOpen(false);
+                          knockFileInputRef.current?.click();
+                        }}
+                        {...getDropzoneHandlers("knocks-upload", importKnocksFile)}
+                      >
+                        Knocks
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </>
             )}
             {canManageReps ? (
@@ -2001,7 +2037,10 @@ export default function WeeklyTable({
                       : "";
 
                   return (
-                    <tr key={`${r.id}-${r.name}`} className={isHighlighted ? "!bg-slate-100" : undefined}>
+                    <tr
+                      key={`${r.id}-${r.name}`}
+                      className={isHighlighted ? "weekly-highlighted-row !bg-slate-100" : undefined}
+                    >
                       <td className="font-medium">
                         <span
                           className={`inline-flex max-w-full truncate rounded-lg px-2 py-1 ${nameHighlightClass || ""}`}
@@ -2162,6 +2201,122 @@ export default function WeeklyTable({
       />
 
       <Modal
+        open={manualSaleOpen}
+        onClose={() => {
+          if (!manualSaleSaving) setManualSaleOpen(false);
+        }}
+        maxWidth="max-w-md"
+      >
+        <form className="space-y-4" onSubmit={addManualSale}>
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">Add Manual Sale</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Adds to the selected rep and day without changing uploaded DB orders.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-2">
+              <span className="text-sm font-semibold text-slate-700">Program</span>
+              <select
+                className="select select-bordered w-full"
+                value={manualSaleProgram}
+                onChange={(event) => setManualSaleProgram(event.target.value)}
+                required
+              >
+                <option value="ATT">ATT</option>
+                <option value="T-Fiber">T-Fiber</option>
+              </select>
+            </label>
+
+            <label className="grid gap-2">
+              <span className="text-sm font-semibold text-slate-700">UID</span>
+              <input
+                type="text"
+                className="input input-bordered w-full"
+                value={manualSaleUid}
+                onChange={(event) => setManualSaleUid(event.target.value)}
+                placeholder={manualSaleProgram === "T-Fiber" ? "Alt Order ID" : "OrderID"}
+                required
+              />
+            </label>
+          </div>
+
+          <label className="grid gap-2">
+            <span className="text-sm font-semibold text-slate-700">Rep</span>
+            <select
+              className="select select-bordered w-full"
+              value={manualSaleRepId}
+              onChange={(event) => setManualSaleRepId(event.target.value)}
+              required
+            >
+              <option value="" disabled>
+                Select rep
+              </option>
+              {rows.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.name || "Unnamed"}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-2">
+              <span className="text-sm font-semibold text-slate-700">Day</span>
+              <select
+                className="select select-bordered w-full"
+                value={manualSaleDayIndex}
+                onChange={(event) => setManualSaleDayIndex(Number(event.target.value))}
+              >
+                {DAYS.map((day, index) => (
+                  <option key={day} value={index}>
+                    {day} {fmtHeaderDate(headerDates[index])}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="grid gap-2">
+              <span className="text-sm font-semibold text-slate-700">Sales</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                className="input input-bordered w-full"
+                value={manualSaleCount}
+                onChange={(event) => setManualSaleCount(event.target.value)}
+                required
+              />
+            </label>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setManualSaleOpen(false)}
+              disabled={manualSaleSaving}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={
+                manualSaleSaving ||
+                !manualSaleRepId ||
+                !manualSaleUid.trim() ||
+                clampNum(manualSaleCount) <= 0
+              }
+            >
+              {manualSaleSaving ? "Adding..." : "Add Sale"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
         open={inactiveModalOpen}
         onClose={() => setInactiveModalOpen(false)}
         maxWidth="max-w-lg"
@@ -2230,10 +2385,26 @@ export default function WeeklyTable({
 
 function TeamManagerModal({ open, rows, saving, onClose, onSave }) {
   const [drafts, setDrafts] = useState({});
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkManager, setBulkManager] = useState("");
+  const [bulkLocation, setBulkLocation] = useState("");
 
   useEffect(() => {
     if (!open) return;
-    setDrafts(Object.fromEntries((rows || []).map((row) => [row.id, row.manager || ""])));
+    setDrafts(
+      Object.fromEntries(
+        (rows || []).map((row) => [
+          row.id,
+          {
+            manager: row.manager || "",
+            team: row.team || "",
+          },
+        ])
+      )
+    );
+    setSelectedIds(new Set());
+    setBulkManager("");
+    setBulkLocation("");
   }, [open, rows]);
 
   const sortedRows = useMemo(
@@ -2243,6 +2414,66 @@ function TeamManagerModal({ open, rows, saving, onClose, onSave }) {
       ),
     [rows]
   );
+  const managerOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [...(rows || []).map((row) => row.manager), ...Object.values(drafts)]
+            .map((value) => String(value?.manager || value || "").trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
+    [drafts, rows]
+  );
+  const locationOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [...(rows || []).map((row) => row.team), ...Object.values(drafts).map((draft) => draft?.team)]
+            .map((value) => String(value || "").trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
+    [drafts, rows]
+  );
+  const allSelected = sortedRows.length > 0 && sortedRows.every((row) => selectedIds.has(row.id));
+  const selectedCount = selectedIds.size;
+
+  const toggleRow = (rowId) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setSelectedIds((current) => {
+      if (sortedRows.length > 0 && sortedRows.every((row) => current.has(row.id))) {
+        return new Set();
+      }
+      return new Set(sortedRows.map((row) => row.id));
+    });
+  };
+
+  const applyBulkEdits = () => {
+    const nextManager = bulkManager.trim();
+    const nextLocation = bulkLocation.trim();
+    if (!selectedIds.size) return;
+
+    setDrafts((current) => {
+      const next = { ...current };
+      selectedIds.forEach((rowId) => {
+        next[rowId] = {
+          ...(next[rowId] || {}),
+          ...(bulkManager.trim() ? { manager: nextManager } : {}),
+          ...(bulkLocation.trim() ? { team: nextLocation } : {}),
+        };
+      });
+      return next;
+    });
+  };
 
   return (
     <Modal open={open} onClose={onClose} maxWidth="max-w-4xl">
@@ -2259,39 +2490,134 @@ function TeamManagerModal({ open, rows, saving, onClose, onSave }) {
           </button>
         </div>
 
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] lg:items-end">
+            <label className="grid gap-2">
+              <span className="text-sm font-semibold text-slate-700">Bulk manager</span>
+              <input
+                type="text"
+                className="input input-bordered input-sm w-full"
+                value={bulkManager}
+                onChange={(event) => setBulkManager(event.target.value)}
+                list="team-manager-options"
+                placeholder="Type manager name"
+                disabled={saving}
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className="text-sm font-semibold text-slate-700">Bulk location</span>
+              <input
+                type="text"
+                className="input input-bordered input-sm w-full"
+                value={bulkLocation}
+                onChange={(event) => setBulkLocation(event.target.value)}
+                list="team-location-options"
+                placeholder="Type location"
+                disabled={saving}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              onClick={toggleAll}
+              disabled={saving || sortedRows.length === 0}
+            >
+              {allSelected ? "Clear Selection" : "Select All"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={applyBulkEdits}
+              disabled={saving || selectedCount === 0 || (!bulkManager.trim() && !bulkLocation.trim())}
+            >
+              Apply to {selectedCount}
+            </button>
+          </div>
+          <datalist id="team-manager-options">
+            {managerOptions.map((manager) => (
+              <option key={manager} value={manager} />
+            ))}
+          </datalist>
+          <datalist id="team-location-options">
+            {locationOptions.map((location) => (
+              <option key={location} value={location} />
+            ))}
+          </datalist>
+        </div>
+
         <div className="max-h-[62vh] overflow-auto rounded-2xl border border-slate-200">
           <table className="table table-sm w-full">
             <thead className="bg-slate-100/90 text-slate-700">
               <tr>
+                <th className="w-10 text-center">
+                  <input
+                    type="checkbox"
+                    className="checkbox checkbox-sm"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    disabled={saving || sortedRows.length === 0}
+                    aria-label="Select all reps"
+                  />
+                </th>
                 <th>Rep</th>
-                <th>Location</th>
                 <th>Manager</th>
+                <th>Location</th>
               </tr>
             </thead>
             <tbody>
               {sortedRows.length > 0 ? (
                 sortedRows.map((row) => (
                   <tr key={`team-manager-${row.id}`}>
+                    <td className="text-center">
+                      <input
+                        type="checkbox"
+                        className="checkbox checkbox-sm"
+                        checked={selectedIds.has(row.id)}
+                        onChange={() => toggleRow(row.id)}
+                        disabled={saving}
+                        aria-label={`Select ${row.name || "rep"}`}
+                      />
+                    </td>
                     <td className="font-semibold text-slate-900">{row.name || "Unnamed rep"}</td>
-                    <td>{row.team || ""}</td>
                     <td>
                       <input
                         type="text"
                         className="input input-bordered input-sm w-full"
-                        value={drafts[row.id] ?? ""}
+                        value={drafts[row.id]?.manager ?? ""}
                         onChange={(event) =>
                           setDrafts((current) => ({
                             ...current,
-                            [row.id]: event.target.value,
+                            [row.id]: {
+                              ...(current[row.id] || {}),
+                              manager: event.target.value,
+                            },
                           }))
                         }
+                        disabled={saving}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        className="input input-bordered input-sm w-full"
+                        value={drafts[row.id]?.team ?? ""}
+                        onChange={(event) =>
+                          setDrafts((current) => ({
+                            ...current,
+                            [row.id]: {
+                              ...(current[row.id] || {}),
+                              team: event.target.value,
+                            },
+                          }))
+                        }
+                        disabled={saving}
                       />
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={3} className="py-8 text-center text-sm text-slate-500">
+                  <td colSpan={4} className="py-8 text-center text-sm text-slate-500">
                     No reps found for the current filters.
                   </td>
                 </tr>
