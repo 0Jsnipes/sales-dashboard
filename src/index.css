@@ -938,6 +938,10 @@ html[data-theme="dark"] .table tfoot th {
   color: #dbe7f7;
 }
 
+html[data-theme="dark"] .table tfoot th.weekly-total-value-cell {
+  color: #18181b;
+}
+
 html[data-theme="dark"] .table tbody tr:hover {
   background: rgba(18, 30, 49, 0.86);
 }

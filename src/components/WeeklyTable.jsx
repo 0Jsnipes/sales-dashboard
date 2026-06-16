@@ -2045,10 +2045,10 @@ export default function WeeklyTable({
                       {value}
                     </th>
                   ))}
-                  <th className="border-l border-lime-300 bg-lime-100 px-1 text-center font-bold text-zinc-950">
+                  <th className="weekly-total-value-cell border-l border-lime-300 bg-lime-100 px-1 text-center font-bold text-zinc-950">
                     {colTotals.weekTotal}
                   </th>
-                  <th className="border-x border-lime-300 bg-lime-100 px-1 text-center font-bold text-zinc-950">
+                  <th className="weekly-total-value-cell border-x border-lime-300 bg-lime-100 px-1 text-center font-bold text-zinc-950">
                     {colTotals.goalTotal}
                   </th>
                   <th className="border-r border-lime-300 bg-lime-100">
