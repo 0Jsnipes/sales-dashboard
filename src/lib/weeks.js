@@ -37,6 +37,8 @@ export async function ensureWeekWithAutoclone(weekISO) {
       // reset both arrays
       sales: [0,0,0,0,0,0,0],
       knocks: [0,0,0,0,0,0,0],
+      attKnocks: [0,0,0,0,0,0,0],
+      tFiberKnocks: [0,0,0,0,0,0,0],
     }));
   });
   await Promise.all(writes);

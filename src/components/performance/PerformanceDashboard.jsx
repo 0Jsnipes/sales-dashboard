@@ -53,7 +53,6 @@ const emptyData = {
 const formatPct = (value) => `${Number(value || 0).toFixed(1)}%`;
 const PROVIDER_FILTERS = ["both", "ATT", "T-Fiber"];
 const CONTROL_RANGE_PRESETS = ["currentWeek", "lastWeek", "mtd", "ytd", "7d", "30d", "90d", "custom"];
-const TRACKER_RANGES = ["currentMonth", "currentWeek", "lastWeek", "mtd", "ytd", "7d", "30d", "90d", "custom"];
 const formatDateLabel = (value) => {
   if (!value) return "No due date";
   const parsed = new Date(`${value}T00:00:00`);
@@ -527,10 +526,7 @@ export default function PerformanceDashboard() {
   const [assignmentOptions, setAssignmentOptions] = useState([]);
   const [dateRange, setDateRange] = useState(getStoredDateRange);
   const [dateRangePreset, setDateRangePreset] = useState(() => detectDatePreset(getStoredDateRange()));
-  const [trackerDateRange, setTrackerDateRange] = useState(createCurrentMonthWindow);
-  const [trackerRangePreset, setTrackerRangePreset] = useState("currentMonth");
   const [providerFilter, setProviderFilter] = useState("both");
-  const [trackerProviderFilter, setTrackerProviderFilter] = useState("both");
   const [comparisonSelection, setComparisonSelection] = useState(getDefaultComparisonSelections);
 
   const effectiveScope = useMemo(
@@ -616,10 +612,6 @@ export default function PerformanceDashboard() {
   useEffect(() => {
     setLocationFilter(scope.locationFilter || "");
   }, [scope.locationFilter]);
-
-  useEffect(() => {
-    setTrackerProviderFilter(providerFilter);
-  }, [providerFilter]);
 
   useEffect(() => {
     if (scope.lockManagerFilter || !managerFilter || !managerOptionsData) return;
@@ -723,29 +715,6 @@ export default function PerformanceDashboard() {
     if (preset === "custom") return;
     setDateRange(createDateWindowFromPreset(preset));
   };
-  const handleTrackerDateRangeChange = (field, value) => {
-    setTrackerRangePreset("custom");
-    setTrackerDateRange((current) => {
-      const next = {
-        ...current,
-        [field]: value,
-      };
-      if (next.startDate && next.endDate && next.startDate > next.endDate) {
-        if (field === "startDate") {
-          next.endDate = value;
-        } else {
-          next.startDate = value;
-        }
-      }
-      return next;
-    });
-  };
-  const handleTrackerRangePresetChange = (preset) => {
-    setTrackerRangePreset(preset);
-    if (preset === "custom") return;
-    setTrackerDateRange(createDateWindowFromPreset(preset));
-  };
-
   const selectedRepData = selectedRep
     ? filteredDashboardData.reps.find((rep) => rep.id === selectedRep)
     : null;
@@ -770,20 +739,33 @@ export default function PerformanceDashboard() {
       ? sourceRep?.allTimeOrders || []
       : locationScopedData.scopedOrdersAllTime || [];
 
-    return sourceOrders.filter((order) => providerMatches(order, trackerProviderFilter));
-  }, [dashboardData, locationFilter, selectedRep, selectedRepLabel, trackerProviderFilter]);
+    return sourceOrders.filter((order) => providerMatches(order, providerFilter));
+  }, [dashboardData, locationFilter, providerFilter, selectedRep, selectedRepLabel]);
   const trackerMetrics = useMemo(() => {
-    const range = buildTrackerRange(trackerDateRange);
+    const range = buildTrackerRange(dateRange);
     const filtered = trackerSourceOrders.filter(
       (order) =>
         !range.startId ||
         (getTrackerDateId(order) && getTrackerDateId(order) >= range.startId && getTrackerDateId(order) < range.endId)
     );
     return buildInstallTrackerMetrics(filtered);
-  }, [trackerDateRange, trackerSourceOrders]);
+  }, [dateRange, trackerSourceOrders]);
+  const installStatusMetrics = useMemo(() => {
+    const total =
+      (trackerMetrics.installed || 0) +
+      (trackerMetrics.pending || 0) +
+      (trackerMetrics.pastDue || 0);
+    return {
+      installedActive: trackerMetrics.installed || 0,
+      pendingInstalls: trackerMetrics.pending || 0,
+      pastDueInstalls: trackerMetrics.pastDue || 0,
+      pendingInstallRate:
+        total > 0 ? ((trackerMetrics.pending || 0) / total) * 100 : 0,
+    };
+  }, [trackerMetrics]);
   const pendingOrders = useMemo(() => {
     const todayId = todayDateId();
-    const range = buildTrackerRange(trackerDateRange);
+    const range = buildTrackerRange(dateRange);
     return trackerSourceOrders
       .filter(
         (order) =>
@@ -796,10 +778,10 @@ export default function PerformanceDashboard() {
           (!order.dueDateId || order.dueDateId >= todayId)
       )
       .sort((a, b) => (a.dueDateId || "9999-12-31").localeCompare(b.dueDateId || "9999-12-31"));
-  }, [trackerDateRange, trackerSourceOrders]);
+  }, [dateRange, trackerSourceOrders]);
   const pastDueOrders = useMemo(() => {
     const todayId = todayDateId();
-    const range = buildTrackerRange(trackerDateRange);
+    const range = buildTrackerRange(dateRange);
     return trackerSourceOrders
       .filter(
         (order) =>
@@ -813,11 +795,11 @@ export default function PerformanceDashboard() {
           order.dueDateId < todayId
       )
       .sort((a, b) => (a.dueDateId || "").localeCompare(b.dueDateId || ""));
-  }, [trackerDateRange, trackerSourceOrders]);
+  }, [dateRange, trackerSourceOrders]);
   const nextSevenDayPendingMetrics = useMemo(() => {
     const todayId = todayDateId();
     const nextWeekId = shiftDateId(7);
-    const range = buildTrackerRange(trackerDateRange);
+    const range = buildTrackerRange(dateRange);
     const nextSevenDayOrders = trackerSourceOrders.filter(
       (order) =>
         order.classifications?.pending &&
@@ -834,7 +816,7 @@ export default function PerformanceDashboard() {
           .map((order) => order.dueDateId)
           .sort((a, b) => a.localeCompare(b))[0] || "",
     };
-  }, [trackerDateRange, trackerSourceOrders]);
+  }, [dateRange, trackerSourceOrders]);
 
   const openAssignmentModal = (order) => {
     if (!canManageAssignments) return;
@@ -1105,17 +1087,13 @@ export default function PerformanceDashboard() {
         ]}
       />
 
-      <InstallStatusChart metrics={activeMetrics} />
+      <InstallStatusChart metrics={installStatusMetrics} />
 
       <InstallTracker
         metrics={trackerMetrics}
         upcomingPendingMetrics={nextSevenDayPendingMetrics}
-        rangePreset={trackerRangePreset}
-        dateRange={trackerDateRange}
-        providerFilter={trackerProviderFilter}
-        onRangePresetChange={handleTrackerRangePresetChange}
-        onDateRangeChange={handleTrackerDateRangeChange}
-        onProviderFilterChange={setTrackerProviderFilter}
+        dateRange={dateRange}
+        providerFilter={providerFilter}
         onOpenPending={() => setPendingModalOpen(true)}
         onOpenPastDue={() => setPastDueModalOpen(true)}
       />
@@ -1379,7 +1357,7 @@ function InstallStatusChart({ metrics }) {
     <section className="glass-panel p-5">
       <SectionIntro
         title="Installed vs Pending"
-        description="Install status for the current selection."
+        description="Install status using the Install Tracker filters."
       />
 
       <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-center">
@@ -1436,12 +1414,8 @@ function InstallStatusChart({ metrics }) {
 function InstallTracker({
   metrics,
   upcomingPendingMetrics,
-  rangePreset,
   dateRange,
   providerFilter,
-  onRangePresetChange,
-  onDateRangeChange,
-  onProviderFilterChange,
   onOpenPending,
   onOpenPastDue,
 }) {
@@ -1473,50 +1447,17 @@ function InstallTracker({
     <section className="glass-panel p-5">
       <SectionIntro
         title="Install Tracker"
-        description="Pending, installed, and past-due installs."
+        description="Pending, installed, and past-due installs using the Controls filters."
       />
 
       <div className="mt-6">
-        <div className="mb-5 grid gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,240px)_minmax(0,170px)_minmax(0,170px)] md:justify-end">
-          <select
-            value={rangePreset}
-            onChange={(event) => onRangePresetChange(event.target.value)}
-            className="select select-bordered select-sm w-full"
-          >
-            {TRACKER_RANGES.map((option) => (
-              <option key={option} value={option}>
-                {formatRangePresetLabel(option)}
-              </option>
-            ))}
-          </select>
-          <div className="join h-8 w-full">
-            {PROVIDER_FILTERS.map((provider) => (
-              <button
-                key={provider}
-                type="button"
-                className={`btn join-item btn-sm h-8 min-h-8 flex-1 px-2 text-xs ${
-                  providerFilter === provider ? "btn-primary" : "btn-outline"
-                }`}
-                onClick={() => onProviderFilterChange(provider)}
-              >
-                {provider === "both" ? "Both" : provider}
-              </button>
-            ))}
-          </div>
-          <input
-            type="date"
-            value={dateRange.startDate}
-            onChange={(event) => onDateRangeChange("startDate", event.target.value)}
-            className="input input-bordered input-sm w-full"
-            aria-label="Install tracker start date"
-          />
-          <input
-            type="date"
-            value={dateRange.endDate}
-            onChange={(event) => onDateRangeChange("endDate", event.target.value)}
-            className="input input-bordered input-sm w-full"
-            aria-label="Install tracker end date"
-          />
+        <div className="mb-5 flex flex-wrap justify-end gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+          <span className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-2">
+            Provider: {providerFilter === "both" ? "Both" : providerFilter}
+          </span>
+          <span className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-2">
+            Range: {formatDateRangeSummary(dateRange)}
+          </span>
         </div>
 
         <div className="relative mx-auto max-w-4xl">

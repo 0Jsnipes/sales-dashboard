@@ -61,6 +61,8 @@ async function propagateForward({ weekISO, rows, horizon = 12 }) {
             knocksGoal: Number(r.knocksGoal || 0),
             sales: [0, 0, 0, 0, 0, 0, 0],
             knocks: [0, 0, 0, 0, 0, 0, 0],
+            attKnocks: [0, 0, 0, 0, 0, 0, 0],
+            tFiberKnocks: [0, 0, 0, 0, 0, 0, 0],
           },
           { merge: false }
         )
@@ -137,7 +139,13 @@ export default function AddRepsModal({ weekISO, open, onClose }) {
         }));
         await Promise.all(
           rows.map((r) =>
-            addDoc(repsCol, { ...r, sales: [0, 0, 0, 0, 0, 0, 0], knocks: [0, 0, 0, 0, 0, 0, 0] })
+            addDoc(repsCol, {
+              ...r,
+              sales: [0, 0, 0, 0, 0, 0, 0],
+              knocks: [0, 0, 0, 0, 0, 0, 0],
+              attKnocks: [0, 0, 0, 0, 0, 0, 0],
+              tFiberKnocks: [0, 0, 0, 0, 0, 0, 0],
+            })
           )
         );
         await propagateForward({ weekISO, rows, horizon: 12 });
@@ -155,6 +163,8 @@ export default function AddRepsModal({ weekISO, open, onClose }) {
           ...row,
           sales: [0, 0, 0, 0, 0, 0, 0],
           knocks: [0, 0, 0, 0, 0, 0, 0],
+          attKnocks: [0, 0, 0, 0, 0, 0, 0],
+          tFiberKnocks: [0, 0, 0, 0, 0, 0, 0],
         });
         await propagateForward({ weekISO, rows: [row], horizon: 12 });
       }

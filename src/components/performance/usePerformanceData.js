@@ -115,6 +115,13 @@ const firstValue = (...values) => {
   return "";
 };
 
+const textIncludes = (value, pattern) => normalizeText(value).includes(pattern);
+
+const anyTextIncludes = (values, pattern) =>
+  values.some((value) => textIncludes(value, pattern));
+
+const hasDateValue = (value) => !!dateIdFromValue(value);
+
 const safeNumber = (value) => {
   const num = Number(value);
   return Number.isFinite(num) && num >= 0 ? num : 0;
@@ -123,6 +130,15 @@ const safeNumber = (value) => {
 const todayDateId = () => {
   const now = new Date();
   return toDateId(new Date(now.getFullYear(), now.getMonth(), now.getDate()));
+};
+
+const isDateIdOlderThanDays = (dateId, days) => {
+  if (!dateId) return false;
+  const parsed = new Date(`${dateId}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return false;
+  const today = new Date(`${todayDateId()}T00:00:00`);
+  const diffDays = Math.floor((today.getTime() - parsed.getTime()) / 86400000);
+  return diffDays > days;
 };
 
 const weekISOForDate = (date) => {
@@ -152,6 +168,40 @@ const statusFromOrder = (order) =>
     order.rawData?.Wireless_CurrentStatus,
     order.data?.accountStatus,
     order.data?.internetCurrentStatus
+  );
+
+const statusValuesFromOrder = (order) => [
+  order.accountStatus,
+  order.internetCurrentStatus,
+  order.rawData?.["Account Status"],
+  order.rawData?.Internet_CurrentStatus,
+  order.rawData?.Video_CurrentStatus,
+  order.rawData?.Voice_CurrentStatus,
+  order.rawData?.Wireless_CurrentStatus,
+  order.rawData?.HomeAutomation_CurrentStatus,
+  order.data?.accountStatus,
+  order.data?.internetCurrentStatus,
+  order.data?.videoCurrentStatus,
+  order.data?.voiceCurrentStatus,
+  order.data?.wirelessCurrentStatus,
+  order.data?.homeAutomationCurrentStatus,
+];
+
+const cancellationDateFromOrder = (order) =>
+  firstValue(
+    order.cancellationDate,
+    order.rawData?.["Order Cancellation Date"],
+    order.rawData?.Internet_CancelDate,
+    order.rawData?.Video_CancelDate,
+    order.rawData?.Voice_CancelDate,
+    order.rawData?.Wireless_CancelDate,
+    order.rawData?.HomeAutomation_CancelDate,
+    order.data?.orderCancellationDate,
+    order.data?.internetCancelDate,
+    order.data?.videoCancelDate,
+    order.data?.voiceCancelDate,
+    order.data?.wirelessCancelDate,
+    order.data?.homeAutomationCancelDate
   );
 
 const customerNameFromOrder = (order) =>
@@ -220,18 +270,20 @@ const dueDateFromOrder = (order) =>
   );
 
 const classifyStatus = (order) => {
-  const status = normalizeText(statusFromOrder(order));
+  const statuses = statusValuesFromOrder(order);
 
   return {
-    cancelled: status.includes("cancel"),
+    cancelled:
+      hasDateValue(cancellationDateFromOrder(order)) ||
+      anyTextIncludes(statuses, "cancel"),
     churned:
-      status.includes("churn") ||
-      status.includes("deactiv") ||
-      status.includes("terminat"),
+      anyTextIncludes(statuses, "churn") ||
+      anyTextIncludes(statuses, "deactiv") ||
+      anyTextIncludes(statuses, "terminat"),
     active:
-      status.includes("active") ||
-      status.includes("installed") ||
-      status.includes("activated"),
+      anyTextIncludes(statuses, "active") ||
+      anyTextIncludes(statuses, "installed") ||
+      anyTextIncludes(statuses, "activated"),
   };
 };
 
@@ -273,6 +325,7 @@ const normalizeAttOrder = (doc) => {
   const rawData = data.rawData || {};
   const orderDateId = data.orderDateId || dateIdFromValue(data.orderDate || rawData.OrderDate);
   const dueDate = dueDateFromOrder(data);
+  const cancellationDate = cancellationDateFromOrder(data);
   const status = statusFromOrder(data);
   const classifications = classifyStatus(data);
 
@@ -309,6 +362,8 @@ const normalizeAttOrder = (doc) => {
     internetInstallDate: firstValue(data.internetInstallDate, rawData.Internet_InstallDate),
     dueDate,
     dueDateId: dateIdFromValue(dueDate),
+    cancellationDate,
+    cancellationDateId: dateIdFromValue(cancellationDate),
     rawData,
     data: data.data || {},
     classifications: {
@@ -325,8 +380,11 @@ const normalizeTFiberOrder = (doc) => {
   const rawData = data.rawData || {};
   const orderDateId = data.orderDateId || dateIdFromValue(data.orderDate || rawData["Order Date"]);
   const dueDate = dueDateFromOrder(data);
+  const cancellationDate = cancellationDateFromOrder(data);
   const status = statusFromOrder(data);
   const classifications = classifyStatus(data);
+  const pending = classifyPending(classifications, data);
+  const stalePending = pending && isDateIdOlderThanDays(orderDateId, 31);
 
   return {
     id: `tfiber:${doc.id}`,
@@ -352,11 +410,14 @@ const normalizeTFiberOrder = (doc) => {
     status,
     dueDate,
     dueDateId: dateIdFromValue(dueDate),
+    cancellationDate,
+    cancellationDateId: dateIdFromValue(cancellationDate),
     rawData,
     data: data.data || {},
     classifications: {
       ...classifications,
-      pending: classifyPending(classifications, data),
+      cancelled: classifications.cancelled || stalePending,
+      pending: pending && !stalePending,
     },
   };
 };
