@@ -1412,6 +1412,7 @@ export default function WeeklyTable({
         const dateId = toLocalISO(targetDate);
         const knocksForDate = parsedReport.byDate[dateId] || {};
         const targetDayIndex = getDayIndexWithinWeek(targetDate, weekISO);
+        const reportKnocksByRepId = new Map();
 
         for (const [repMatchKey, knockData] of Object.entries(knocksForDate)) {
           const matchingRep = allReps.find(
@@ -1428,14 +1429,18 @@ export default function WeeklyTable({
             continue;
           }
 
+          reportKnocksByRepId.set(matchingRep.id, knockData.totalKnocks);
+          matchedCount += 1;
+        }
+
+        for (const matchingRep of allReps) {
           const repRef = doc(db, base, weekISO, "reps", matchingRep.id);
           const updatedKnocks = await runTransaction(db, async (transaction) => {
             const repSnap = await transaction.get(repRef);
             const repData = repSnap.exists() ? repSnap.data() : matchingRep;
             const { attKnocks, tFiberKnocks } = getKnockSourceArrays(repData);
 
-            tFiberKnocks[targetDayIndex] =
-              clampNum(tFiberKnocks[targetDayIndex]) + knockData.totalKnocks;
+            tFiberKnocks[targetDayIndex] = clampNum(reportKnocksByRepId.get(matchingRep.id));
             const knocks = attKnocks.map((attValue, index) => attValue + tFiberKnocks[index]);
 
             transaction.set(
@@ -1458,8 +1463,6 @@ export default function WeeklyTable({
           });
 
           matchingRep.knocks = updatedKnocks;
-
-          matchedCount += 1;
         }
       }
 
@@ -2062,8 +2065,6 @@ export default function WeeklyTable({
               >
                 {inactivitySummary.rows.map((r) => {
                   const arr = r[metricKey] || Array(7).fill(0);
-                  const knockSources =
-                    metricKey === "knocks" ? getKnockSourceArrays(r) : null;
                   const total = arr.reduce((a, b) => a + clampNum(b), 0);
                   const goal = clampNum(r[goalKey]);
                   const pct = goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : 0;
@@ -2098,45 +2099,23 @@ export default function WeeklyTable({
                       {DAYS.map((d, i) => (
                         <td key={d} className="px-1 text-center">
                           {canEdit && metricKey !== "sales" ? (
-                            <div className="flex flex-col items-center gap-1">
-                              <input
-                                key={`${r.id}-${weekISO}-${i}-${arr[i] ?? 0}`}
-                                type="number"
-                                min="0"
-                                defaultValue={arr[i] ?? ""}
-                                className="input input-bordered input-xs weekly-grid-input h-8 w-11 min-h-8"
-                                data-type="day"
-                                data-rep={r.id}
-                                data-day={i}
-                                title={metricKey === "knocks" ? "Current week knocks" : undefined}
-                                onFocus={() => setHighlightedRepId(r.id)}
-                                onClick={() => setHighlightedRepId(r.id)}
-                                onBlur={(e) => saveCell(r, i, e.target.value)}
-                                onKeyDown={handleKeyNav}
-                              />
-                              {metricKey === "knocks" ? (
-                                <div className="text-[10px] leading-tight text-slate-500">
-                                  <span title="ATT knocks">
-                                    A {knockSources?.attKnocks?.[i] ?? 0}
-                                  </span>
-                                  <span className="mx-1 text-slate-300">/</span>
-                                  <span title="T-Fiber knocks">
-                                    T {knockSources?.tFiberKnocks?.[i] ?? 0}
-                                  </span>
-                                </div>
-                              ) : null}
-                            </div>
+                            <input
+                              key={`${r.id}-${weekISO}-${i}-${arr[i] ?? 0}`}
+                              type="number"
+                              min="0"
+                              defaultValue={arr[i] ?? ""}
+                              className="input input-bordered input-xs weekly-grid-input h-8 w-11 min-h-8"
+                              data-type="day"
+                              data-rep={r.id}
+                              data-day={i}
+                              title={metricKey === "knocks" ? "Current week knocks" : undefined}
+                              onFocus={() => setHighlightedRepId(r.id)}
+                              onClick={() => setHighlightedRepId(r.id)}
+                              onBlur={(e) => saveCell(r, i, e.target.value)}
+                              onKeyDown={handleKeyNav}
+                            />
                           ) : (
-                            <span
-                              className="inline-flex w-full justify-center"
-                              title={
-                                metricKey === "knocks"
-                                  ? `ATT ${knockSources?.attKnocks?.[i] ?? 0}, T-Fiber ${
-                                      knockSources?.tFiberKnocks?.[i] ?? 0
-                                    }`
-                                  : undefined
-                              }
-                            >
+                            <span className="inline-flex w-full justify-center">
                               {arr[i] ?? ""}
                             </span>
                           )}

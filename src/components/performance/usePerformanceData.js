@@ -612,6 +612,8 @@ const buildKnockTotalsByRep = (dates, weekMap) => {
       const knocks = safeNumber(Array.isArray(rep.knocks) ? rep.knocks[dayIndex] : 0);
       if (!knocks) return;
 
+      // Performance uses the combined weekly knocks field only. Source-specific
+      // split fields are intentionally ignored here to avoid stale import totals.
       totals.set(repKey, (totals.get(repKey) || 0) + knocks);
     });
   });

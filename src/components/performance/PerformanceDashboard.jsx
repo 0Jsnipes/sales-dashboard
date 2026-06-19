@@ -425,11 +425,11 @@ const normalizeManagerLabel = (value) =>
   toNameTitleCase(value)
     .replace(/\bSub\b/g, "Sub")
     .replace(/\bCj\b/g, "CJ");
-const DATE_RANGE_STORAGE_KEY = "ab-performance-date-range";
+const DATE_RANGE_STORAGE_KEY = "ab-performance-date-range-v2";
 const getStoredDateRange = () => {
-  if (typeof window === "undefined") return createRelativeDateWindow(7);
+  if (typeof window === "undefined") return createCurrentWeekWindow();
   const stored = window.localStorage.getItem(DATE_RANGE_STORAGE_KEY);
-  if (!stored) return createRelativeDateWindow(7);
+  if (!stored) return createCurrentWeekWindow();
   try {
     const parsed = JSON.parse(stored);
     if (
@@ -444,10 +444,11 @@ const getStoredDateRange = () => {
       };
     }
   } catch {
+    if (stored === "currentWeek") return createCurrentWeekWindow();
     if (stored === "30d") return createRelativeDateWindow(30);
     if (stored === "90d") return createRelativeDateWindow(90);
   }
-  return createRelativeDateWindow(7);
+  return createCurrentWeekWindow();
 };
 const formatDateRangeSummary = (range) =>
   range?.startDate && range?.endDate ? `${range.startDate} to ${range.endDate}` : "Custom";
