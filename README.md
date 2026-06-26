@@ -13,15 +13,18 @@ This template provides a minimal setup to get React working in Vite with HMR and
 - ATT and T-Fiber knocks were stored as one combined knock total through 6/17/2026.
   Starting after that date, manually entered knocks are treated as ATT knocks and
   uploaded knock reports are treated as T-Fiber knocks.
-- Install tracker counts are based on install status and install due date when
-  available. Pending means an order is not active, cancelled, churned, or past due;
-  overdue pending orders move into Past Due. Installed means the order status reads
-  as active, installed, or activated. The Installed vs Pending chart and Install
-  Tracker both use the same date and provider filters from the Controls section.
+- Install tracker counts use the order date for the selected date range. Pending
+  means an order is not active, cancelled, churned, or a preorder; Past Due is the
+  subset of pending orders with an overdue install/track date. Installed means the
+  order status reads as active, installed, activated, or complete, or an activation
+  date is present. The Installed vs Pending chart and Install Tracker both use the
+  same date and provider filters from the Controls section.
+- Progress Comparison uses sale dates: current week-to-date vs the matching days
+  from the prior week, month-to-date vs the matching days from the prior month,
+  and year-to-date vs the matching dates from the prior year.
 - Cancellation counts are order-level. An uploaded order is counted as cancelled
   when any cancellation status or cancellation date column is present on that
-  order row. T-Fiber orders that are still pending more than 31 days after their
-  order date are also counted as cancelled.
+  order row.
 
 Currently, two official plugins are available:
 

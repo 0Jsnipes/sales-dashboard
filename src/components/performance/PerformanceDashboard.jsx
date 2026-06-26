@@ -27,11 +27,13 @@ const emptyMetrics = {
   tFiberSales: 0,
   cancellations: 0,
   churned: 0,
+  preorders: 0,
   installedActive: 0,
   pendingInstalls: 0,
   pastDueInstalls: 0,
   cancellationRate: 0,
   churnRate: 0,
+  preorderRate: 0,
   installedActiveRate: 0,
   pendingInstallRate: 0,
   conversionRate: 0,
@@ -159,11 +161,6 @@ const createMonthWindow = (monthId) => {
     endDate: toDateId(end),
   };
 };
-const shiftMonthId = (monthId, offset) => {
-  const [year, month] = String(monthId || "").split("-").map(Number);
-  const date = year && month ? new Date(year, month - 1 + offset, 1) : new Date();
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-};
 const createYearToDateWindow = () => {
   const now = new Date();
   const current = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -179,6 +176,39 @@ const createYearWindow = (yearValue) => {
   return {
     startDate: `${safeYear}-01-01`,
     endDate: `${safeYear}-12-31`,
+  };
+};
+const createPriorWeekProgressWindow = (weekWindow) => {
+  const start = new Date(`${weekWindow.startDate}T00:00:00`);
+  const end = new Date(`${weekWindow.endDate}T00:00:00`);
+  return {
+    startDate: toDateId(addDays(start, -7)),
+    endDate: toDateId(addDays(end, -7)),
+  };
+};
+const createPriorMonthProgressWindow = (monthWindow) => {
+  const start = new Date(`${monthWindow.startDate}T00:00:00`);
+  const end = new Date(`${monthWindow.endDate}T00:00:00`);
+  const priorYear = start.getMonth() === 0 ? start.getFullYear() - 1 : start.getFullYear();
+  const priorMonth = start.getMonth() === 0 ? 11 : start.getMonth() - 1;
+  const priorMonthLastDay = new Date(priorYear, priorMonth + 1, 0).getDate();
+  const endDay = Math.min(end.getDate(), priorMonthLastDay);
+
+  return {
+    startDate: toDateId(new Date(priorYear, priorMonth, 1)),
+    endDate: toDateId(new Date(priorYear, priorMonth, endDay)),
+  };
+};
+const createPriorYearProgressWindow = (yearWindow) => {
+  const start = new Date(`${yearWindow.startDate}T00:00:00`);
+  const end = new Date(`${yearWindow.endDate}T00:00:00`);
+  const priorYear = start.getFullYear() - 1;
+  const priorMonthLastDay = new Date(priorYear, end.getMonth() + 1, 0).getDate();
+  const endDay = Math.min(end.getDate(), priorMonthLastDay);
+
+  return {
+    startDate: toDateId(new Date(priorYear, 0, 1)),
+    endDate: toDateId(new Date(priorYear, end.getMonth(), endDay)),
   };
 };
 const createDateWindowFromPreset = (preset) => {
@@ -217,7 +247,12 @@ const buildExclusiveRange = (window) => {
   };
 };
 const buildTrackerRange = (range) => buildExclusiveRange(range);
-const getTrackerDateId = (order) => order.dueDateId || order.orderDateId || "";
+const getTrackerDateId = (order) => order.orderDateId || "";
+const orderIsInTrackerRange = (order, range) =>
+  !range.startId ||
+  (getTrackerDateId(order) &&
+    getTrackerDateId(order) >= range.startId &&
+    getTrackerDateId(order) < range.endId);
 const providerMatches = (order, providerFilter) =>
   providerFilter === "both" || order.provider === providerFilter;
 const normalizeLocationLabel = (value) => String(value ?? "").trim();
@@ -234,13 +269,14 @@ const buildInstallTrackerMetrics = (orders) => {
 
       if (!order.classifications?.pending) return metrics;
 
+      metrics.pending += 1;
+
       if (order.dueDateId && order.dueDateId < todayId) {
         metrics.pastDue += 1;
         if (!metrics.oldestPastDueDateId || order.dueDateId < metrics.oldestPastDueDateId) {
           metrics.oldestPastDueDateId = order.dueDateId;
         }
       } else {
-        metrics.pending += 1;
         if (order.dueDateId && (!metrics.nextPendingDueDateId || order.dueDateId < metrics.nextPendingDueDateId)) {
           metrics.nextPendingDueDateId = order.dueDateId;
         }
@@ -271,16 +307,17 @@ const buildProviderMetrics = (orders, totalKnocks = 0) => {
     if (order.provider === "T-Fiber") metrics.tFiberSales += order.saleCount || 0;
     if (order.classifications?.cancelled) metrics.cancellations += 1;
     if (order.classifications?.churned) metrics.churned += 1;
+    if (order.classifications?.preorder) metrics.preorders += 1;
     if (order.classifications?.active) metrics.installedActive += 1;
 
     if (order.classifications?.pending) {
+      metrics.pendingInstalls += 1;
       if (order.dueDateId && order.dueDateId < todayId) {
         metrics.pastDueInstalls += 1;
         if (!metrics.oldestPastDueDateId || order.dueDateId < metrics.oldestPastDueDateId) {
           metrics.oldestPastDueDateId = order.dueDateId;
         }
       } else {
-        metrics.pendingInstalls += 1;
         if (order.dueDateId && (!metrics.nextPendingDueDateId || order.dueDateId < metrics.nextPendingDueDateId)) {
           metrics.nextPendingDueDateId = order.dueDateId;
         }
@@ -293,6 +330,7 @@ const buildProviderMetrics = (orders, totalKnocks = 0) => {
     ...metrics,
     cancellationRate: (metrics.cancellations / denominator) * 100,
     churnRate: (metrics.churned / denominator) * 100,
+    preorderRate: (metrics.preorders / denominator) * 100,
     installedActiveRate: (metrics.installedActive / denominator) * 100,
     pendingInstallRate: (metrics.pendingInstalls / denominator) * 100,
     conversionRate:
@@ -475,32 +513,40 @@ const getDefaultComparisonSelections = () => {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const currentWeekDay = (today.getDay() + 6) % 7;
-  const previousCompletedWeekStart = addDays(today, -currentWeekDay - 7);
+  const currentWeekStart = addDays(today, -currentWeekDay);
 
   return {
-    weekStartDate: toDateId(previousCompletedWeekStart),
+    weekStartDate: toDateId(currentWeekStart),
     monthId: monthIdFromDate(today),
     year: String(today.getFullYear()),
   };
 };
 const createComparisonRanges = ({ weekStartDate, monthId, year }) => {
-  const week = createWeekWindowFromStart(weekStartDate);
-  const previousWeek = createPreviousWeekWindow(week.startDate);
-  const month = createMonthWindow(monthId);
-  const previousMonth = createMonthWindow(shiftMonthId(monthId, -1));
+  const currentWeek = createCurrentWeekWindow();
+  const selectedWeek = createWeekWindowFromStart(weekStartDate);
+  const week = selectedWeek.startDate === currentWeek.startDate ? currentWeek : selectedWeek;
+  const previousWeek =
+    selectedWeek.startDate === currentWeek.startDate
+      ? createPriorWeekProgressWindow(week)
+      : createPreviousWeekWindow(week.startDate);
+  const selectedMonthId = monthId || monthIdFromDate(new Date());
+  const currentMonthId = monthIdFromDate(new Date());
+  const month = selectedMonthId === currentMonthId ? createMonthToDateWindow() : createMonthWindow(selectedMonthId);
+  const previousMonth = createPriorMonthProgressWindow(month);
   const selectedYear = Number(year) || new Date().getFullYear();
-  const yearWindow = createYearWindow(selectedYear);
-  const previousYear = createYearWindow(selectedYear - 1);
+  const currentYear = new Date().getFullYear();
+  const yearWindow = selectedYear === currentYear ? createYearToDateWindow() : createYearWindow(selectedYear);
+  const previousYear = createPriorYearProgressWindow(yearWindow);
 
   return {
-    week: { label: "Week vs Week", current: week, previous: previousWeek },
+    week: { label: "Week over Week", current: week, previous: previousWeek },
     month: {
-      label: "Month vs Month",
+      label: "Month over Month",
       current: month,
       previous: previousMonth,
     },
     year: {
-      label: "Year vs Year",
+      label: "Year over Year",
       current: yearWindow,
       previous: previousYear,
     },
@@ -744,18 +790,13 @@ export default function PerformanceDashboard() {
   }, [dashboardData, locationFilter, providerFilter, selectedRep, selectedRepLabel]);
   const trackerMetrics = useMemo(() => {
     const range = buildTrackerRange(dateRange);
-    const filtered = trackerSourceOrders.filter(
-      (order) =>
-        !range.startId ||
-        (getTrackerDateId(order) && getTrackerDateId(order) >= range.startId && getTrackerDateId(order) < range.endId)
-    );
+    const filtered = trackerSourceOrders.filter((order) => orderIsInTrackerRange(order, range));
     return buildInstallTrackerMetrics(filtered);
   }, [dateRange, trackerSourceOrders]);
   const installStatusMetrics = useMemo(() => {
     const total =
       (trackerMetrics.installed || 0) +
-      (trackerMetrics.pending || 0) +
-      (trackerMetrics.pastDue || 0);
+      (trackerMetrics.pending || 0);
     return {
       installedActive: trackerMetrics.installed || 0,
       pendingInstalls: trackerMetrics.pending || 0,
@@ -765,30 +806,17 @@ export default function PerformanceDashboard() {
     };
   }, [trackerMetrics]);
   const pendingOrders = useMemo(() => {
-    const todayId = todayDateId();
     const range = buildTrackerRange(dateRange);
     return trackerSourceOrders
-      .filter(
-        (order) =>
-          !range.startId ||
-          (getTrackerDateId(order) && getTrackerDateId(order) >= range.startId && getTrackerDateId(order) < range.endId)
-      )
-      .filter(
-        (order) =>
-          order.classifications?.pending &&
-          (!order.dueDateId || order.dueDateId >= todayId)
-      )
+      .filter((order) => orderIsInTrackerRange(order, range))
+      .filter((order) => order.classifications?.pending)
       .sort((a, b) => (a.dueDateId || "9999-12-31").localeCompare(b.dueDateId || "9999-12-31"));
   }, [dateRange, trackerSourceOrders]);
   const pastDueOrders = useMemo(() => {
     const todayId = todayDateId();
     const range = buildTrackerRange(dateRange);
     return trackerSourceOrders
-      .filter(
-        (order) =>
-          !range.startId ||
-          (getTrackerDateId(order) && getTrackerDateId(order) >= range.startId && getTrackerDateId(order) < range.endId)
-      )
+      .filter((order) => orderIsInTrackerRange(order, range))
       .filter(
         (order) =>
           order.classifications?.pending &&
@@ -807,7 +835,7 @@ export default function PerformanceDashboard() {
         order.dueDateId &&
         order.dueDateId >= todayId &&
         order.dueDateId <= nextWeekId &&
-        (!range.startId || (order.dueDateId >= range.startId && order.dueDateId < range.endId))
+        orderIsInTrackerRange(order, range)
     );
 
     return {
@@ -875,7 +903,7 @@ export default function PerformanceDashboard() {
         title="Performance"
         description="Sales, status, and install metrics from uploaded orders."
         stats={[
-          { label: "Range", value: formatDateRangeSummary(dateRange) },
+          { label: "Sale Range", value: formatDateRangeSummary(dateRange) },
           { label: "Reps", value: filteredDashboardData.reps.length || 0 },
           { label: "Scope", value: selectedRep ? selectedRepLabel || "Selected rep" : "All reps" },
           { label: "Location", value: locationFilter || "All" },
@@ -886,7 +914,7 @@ export default function PerformanceDashboard() {
       <section className="toolbar-card">
         <SectionIntro
           title="Controls"
-          description="Filter by manager, location, rep, and custom date range."
+          description="Filter by manager, location, rep, provider, and sale date range."
         />
 
         <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
@@ -967,7 +995,7 @@ export default function PerformanceDashboard() {
 
             <label className="grid gap-2">
               <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                Date Range
+                Sale Date Range
               </span>
               <div className="grid gap-3">
                 <select
@@ -1178,6 +1206,13 @@ function StatusGauges({ metrics }) {
       bg: "#fef3c7",
     },
     {
+      label: "Preorders",
+      count: metrics.preorders || 0,
+      percent: metrics.preorderRate || 0,
+      color: "#7c3aed",
+      bg: "#ede9fe",
+    },
+    {
       label: "Install Active",
       count: metrics.installedActive || 0,
       percent: metrics.installedActiveRate || 0,
@@ -1193,7 +1228,7 @@ function StatusGauges({ metrics }) {
         description="Cancellation, churn, and active install rates."
       />
 
-      <div className="mt-5 grid gap-4 md:grid-cols-3">
+      <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {gauges.map((gauge) => (
           <GaugeCard key={gauge.label} {...gauge} />
         ))}
@@ -1205,12 +1240,20 @@ function StatusGauges({ metrics }) {
 function ComparisonSection({ comparisons, selection, onSelectionChange }) {
   const rows = [
     { key: "totalSales", label: "Sales", format: (value) => Number(value || 0).toLocaleString() },
-    { key: "conversionRate", label: "Conversion", format: formatPct },
+    { key: "orderCount", label: "Orders", format: (value) => Number(value || 0).toLocaleString() },
     { key: "installedActive", label: "Active Installs", format: (value) => Number(value || 0).toLocaleString() },
+    { key: "pendingInstalls", label: "Pending", format: (value) => Number(value || 0).toLocaleString() },
+    {
+      key: "pastDueInstalls",
+      label: "Past Due",
+      format: (value) => Number(value || 0).toLocaleString(),
+      higherIsBetter: false,
+    },
+    { key: "conversionRate", label: "Conversion", format: formatPct },
   ];
   const controls = {
-    "Week vs Week": {
-      label: "Compare Week",
+    "Week over Week": {
+      label: "Progress Week",
       type: "date",
       value: selection.weekStartDate,
       onChange: (value) => {
@@ -1221,14 +1264,14 @@ function ComparisonSection({ comparisons, selection, onSelectionChange }) {
         onSelectionChange((current) => ({ ...current, weekStartDate: toDateId(weekStart) }));
       },
     },
-    "Month vs Month": {
-      label: "Compare Month",
+    "Month over Month": {
+      label: "Progress Month",
       type: "month",
       value: selection.monthId,
       onChange: (value) => onSelectionChange((current) => ({ ...current, monthId: value })),
     },
-    "Year vs Year": {
-      label: "Compare Year",
+    "Year over Year": {
+      label: "Progress Year",
       type: "number",
       value: selection.year,
       onChange: (value) => onSelectionChange((current) => ({ ...current, year: value })),
@@ -1238,8 +1281,8 @@ function ComparisonSection({ comparisons, selection, onSelectionChange }) {
   return (
     <section className="glass-panel p-5">
       <SectionIntro
-        title="Period Comparison"
-        description="Week-over-week, month-over-month, and year-over-year performance."
+        title="Progress Comparison"
+        description="Week-over-week, month-over-month, and year-over-year progress by sale date."
       />
 
       <div className="mt-5 grid gap-4 xl:grid-cols-3">
@@ -1278,7 +1321,7 @@ function ComparisonSection({ comparisons, selection, onSelectionChange }) {
                 const previous = Number(comparison.previousMetrics?.[row.key] || 0);
                 const delta = current - previous;
                 const deltaPct = previous > 0 ? (delta / previous) * 100 : current > 0 ? 100 : 0;
-                const positive = delta >= 0;
+                const favorable = row.higherIsBetter === false ? delta <= 0 : delta >= 0;
 
                 return (
                   <div key={row.key} className="rounded-[18px] bg-slate-50 px-3 py-3">
@@ -1286,8 +1329,8 @@ function ComparisonSection({ comparisons, selection, onSelectionChange }) {
                       <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                         {row.label}
                       </span>
-                      <span className={`text-xs font-bold ${positive ? "text-emerald-600" : "text-rose-600"}`}>
-                        {positive ? "+" : ""}
+                      <span className={`text-xs font-bold ${favorable ? "text-emerald-600" : "text-rose-600"}`}>
+                        {delta >= 0 ? "+" : ""}
                         {formatPct(deltaPct)}
                       </span>
                     </div>
@@ -1448,7 +1491,7 @@ function InstallTracker({
     <section className="glass-panel p-5">
       <SectionIntro
         title="Install Tracker"
-        description="Pending, installed, and past-due installs using the Controls filters."
+        description="Pending, installed, and past-due installs for sales in the Controls date range."
       />
 
       <div className="mt-6">
@@ -1457,7 +1500,7 @@ function InstallTracker({
             Provider: {providerFilter === "both" ? "Both" : providerFilter}
           </span>
           <span className="rounded-full border border-slate-200/70 bg-white/70 px-3 py-2">
-            Range: {formatDateRangeSummary(dateRange)}
+            Sale Date Range: {formatDateRangeSummary(dateRange)}
           </span>
         </div>
 
@@ -1519,7 +1562,7 @@ function InstallTracker({
 
           <div className="rounded-[24px] border border-slate-200/70 bg-white/78 px-5 py-4">
             <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-              Past Due In Filter
+              Past Due Sales In Filter
             </div>
             <div className="mt-2 font-display text-4xl font-bold text-rose-600">
               {metrics.pastDue || 0}

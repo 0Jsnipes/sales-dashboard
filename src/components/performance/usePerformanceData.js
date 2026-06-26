@@ -120,6 +120,11 @@ const textIncludes = (value, pattern) => normalizeText(value).includes(pattern);
 const anyTextIncludes = (values, pattern) =>
   values.some((value) => textIncludes(value, pattern));
 
+const textMatches = (value, pattern) => pattern.test(normalizeText(value));
+
+const anyTextMatches = (values, pattern) =>
+  values.some((value) => textMatches(value, pattern));
+
 const hasDateValue = (value) => !!dateIdFromValue(value);
 
 const safeNumber = (value) => {
@@ -130,15 +135,6 @@ const safeNumber = (value) => {
 const todayDateId = () => {
   const now = new Date();
   return toDateId(new Date(now.getFullYear(), now.getMonth(), now.getDate()));
-};
-
-const isDateIdOlderThanDays = (dateId, days) => {
-  if (!dateId) return false;
-  const parsed = new Date(`${dateId}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return false;
-  const today = new Date(`${todayDateId()}T00:00:00`);
-  const diffDays = Math.floor((today.getTime() - parsed.getTime()) / 86400000);
-  return diffDays > days;
 };
 
 const weekISOForDate = (date) => {
@@ -160,25 +156,33 @@ const currentWeekISO = () => {
 
 const statusFromOrder = (order) =>
   firstValue(
+    order.status,
     order.accountStatus,
     order.internetCurrentStatus,
+    order.rawData?.Status,
+    order.rawData?.status,
     order.rawData?.["Account Status"],
     order.rawData?.Internet_CurrentStatus,
     order.rawData?.Video_CurrentStatus,
     order.rawData?.Wireless_CurrentStatus,
+    order.data?.status,
     order.data?.accountStatus,
     order.data?.internetCurrentStatus
   );
 
 const statusValuesFromOrder = (order) => [
+  order.status,
   order.accountStatus,
   order.internetCurrentStatus,
+  order.rawData?.Status,
+  order.rawData?.status,
   order.rawData?.["Account Status"],
   order.rawData?.Internet_CurrentStatus,
   order.rawData?.Video_CurrentStatus,
   order.rawData?.Voice_CurrentStatus,
   order.rawData?.Wireless_CurrentStatus,
   order.rawData?.HomeAutomation_CurrentStatus,
+  order.data?.status,
   order.data?.accountStatus,
   order.data?.internetCurrentStatus,
   order.data?.videoCurrentStatus,
@@ -202,6 +206,23 @@ const cancellationDateFromOrder = (order) =>
     order.data?.voiceCancelDate,
     order.data?.wirelessCancelDate,
     order.data?.homeAutomationCancelDate
+  );
+
+const activationDateFromOrder = (order) =>
+  firstValue(
+    order.activationDate,
+    order.rawData?.["Activation Date"],
+    order.rawData?.Internet_ActiveDate,
+    order.rawData?.Video_ActiveDate,
+    order.rawData?.Voice_ActiveDate,
+    order.rawData?.Wireless_ActiveDate,
+    order.rawData?.HomeAutomation_ActiveDate,
+    order.data?.activationDate,
+    order.data?.internetActiveDate,
+    order.data?.videoActiveDate,
+    order.data?.voiceActiveDate,
+    order.data?.wirelessActiveDate,
+    order.data?.homeAutomationActiveDate
   );
 
 const customerNameFromOrder = (order) =>
@@ -271,24 +292,33 @@ const dueDateFromOrder = (order) =>
 
 const classifyStatus = (order) => {
   const statuses = statusValuesFromOrder(order);
+  const preorder = anyTextMatches(statuses, /\bpre[- ]?order\b/);
+  const cancelled =
+    hasDateValue(cancellationDateFromOrder(order)) ||
+    anyTextIncludes(statuses, "cancel");
+  const churned =
+    anyTextIncludes(statuses, "churn") ||
+    anyTextIncludes(statuses, "deactiv") ||
+    anyTextIncludes(statuses, "terminat");
+  const active =
+    hasDateValue(activationDateFromOrder(order)) ||
+    anyTextMatches(statuses, /\b(active|installed|activated|completed?)\b/);
 
   return {
-    cancelled:
-      hasDateValue(cancellationDateFromOrder(order)) ||
-      anyTextIncludes(statuses, "cancel"),
-    churned:
-      anyTextIncludes(statuses, "churn") ||
-      anyTextIncludes(statuses, "deactiv") ||
-      anyTextIncludes(statuses, "terminat"),
-    active:
-      anyTextIncludes(statuses, "active") ||
-      anyTextIncludes(statuses, "installed") ||
-      anyTextIncludes(statuses, "activated"),
+    cancelled,
+    churned,
+    active: active && !cancelled && !churned && !preorder,
+    preorder,
   };
 };
 
 const classifyPending = (classifications, order) => {
-  if (classifications.cancelled || classifications.churned || classifications.active) {
+  if (
+    classifications.cancelled ||
+    classifications.churned ||
+    classifications.active ||
+    classifications.preorder
+  ) {
     return false;
   }
 
@@ -384,7 +414,6 @@ const normalizeTFiberOrder = (doc) => {
   const status = statusFromOrder(data);
   const classifications = classifyStatus(data);
   const pending = classifyPending(classifications, data);
-  const stalePending = pending && isDateIdOlderThanDays(orderDateId, 31);
 
   return {
     id: `tfiber:${doc.id}`,
@@ -416,8 +445,7 @@ const normalizeTFiberOrder = (doc) => {
     data: data.data || {},
     classifications: {
       ...classifications,
-      cancelled: classifications.cancelled || stalePending,
-      pending: pending && !stalePending,
+      pending,
     },
   };
 };
@@ -443,11 +471,13 @@ const emptyMetrics = () => ({
   tFiberSales: 0,
   cancellations: 0,
   churned: 0,
+  preorders: 0,
   installedActive: 0,
   pendingInstalls: 0,
   pastDueInstalls: 0,
   cancellationRate: 0,
   churnRate: 0,
+  preorderRate: 0,
   installedActiveRate: 0,
   pendingInstallRate: 0,
   conversionRate: 0,
@@ -461,6 +491,7 @@ const finalizeMetrics = (metrics) => {
     ...metrics,
     cancellationRate: (metrics.cancellations / denominator) * 100,
     churnRate: (metrics.churned / denominator) * 100,
+    preorderRate: (metrics.preorders / denominator) * 100,
     installedActiveRate: (metrics.installedActive / denominator) * 100,
     pendingInstallRate: (metrics.pendingInstalls / denominator) * 100,
     conversionRate:
@@ -476,15 +507,16 @@ const applyOrderToMetrics = (metrics, order) => {
   if (order.provider === "T-Fiber") metrics.tFiberSales += order.saleCount || 0;
   if (order.classifications.cancelled) metrics.cancellations += 1;
   if (order.classifications.churned) metrics.churned += 1;
+  if (order.classifications.preorder) metrics.preorders += 1;
   if (order.classifications.active) metrics.installedActive += 1;
   if (order.classifications.pending) {
+    metrics.pendingInstalls += 1;
     if (order.dueDateId && order.dueDateId < todayId) {
       metrics.pastDueInstalls += 1;
       if (!metrics.oldestPastDueDateId || order.dueDateId < metrics.oldestPastDueDateId) {
         metrics.oldestPastDueDateId = order.dueDateId;
       }
     } else {
-      metrics.pendingInstalls += 1;
       if (order.dueDateId) {
         if (!metrics.nextPendingDueDateId || order.dueDateId < metrics.nextPendingDueDateId) {
           metrics.nextPendingDueDateId = order.dueDateId;
